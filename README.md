@@ -91,7 +91,7 @@ pnpm install
 cp packages/app-lib/.env.prod packages/app-lib/.env
 
 pnpm app:dev                              # запуск в режиме разработки
-cd apps/app && pnpm tauri build --no-bundle   # релизный бинарник: target/release/theseus_gui
+cd apps/app && pnpm tauri build --no-bundle   # бинарник: target/release/trolllauncher
 ```
 
 Код лаунчера — `apps/app` (Rust, Tauri) и `apps/app-frontend` (Vue). Общая библиотека — `packages/app-lib`.

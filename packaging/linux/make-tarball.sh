@@ -12,7 +12,7 @@ trap 'rm -rf "$stage"' EXIT
 
 dir="$stage/$name"
 mkdir -p "$dir/icons"
-install -Dm755 "$root/target/release/theseus_gui" "$dir/trolllauncher"
+install -Dm755 "$root/target/release/trolllauncher" "$dir/trolllauncher"
 install -Dm644 "$root/packaging/linux/trolllauncher.desktop" "$dir/trolllauncher.desktop"
 install -Dm644 "$root/packaging/linux/trolllauncher.svg" "$dir/icons/trolllauncher.svg"
 cp "$root"/packaging/linux/icons/*.png "$dir/icons/"
