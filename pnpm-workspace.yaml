@@ -33,7 +33,7 @@ allowBuilds:
   core-js: true
   esbuild: true
   protobufjs: true
-  sharp: true
+  sharp: false
   unrs-resolver: true
   vue-demi: true
   workerd: true

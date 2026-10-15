@@ -43,6 +43,9 @@ pub use self::discord::*;
 mod minecraft_auth;
 pub use self::minecraft_auth::*;
 
+pub mod elyby;
+pub use self::elyby::AccountProvider;
+
 pub mod minecraft_skins;
 
 mod cache;

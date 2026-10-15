@@ -14,6 +14,9 @@ import { type ColorTheme, isDarkTheme, useTheme } from '@/composables/use-theme.
 import { type AppSettings, get, set } from '@/helpers/settings.ts'
 import { appSettingsModalContextKey } from '@/providers/app-settings-modal'
 
+import InterfaceSettings from './InterfaceSettings.vue'
+import PaletteSettings from './PaletteSettings.vue'
+
 const theme = useTheme()
 const appSettings = useAppSettings()
 const auth = injectAuth()
@@ -158,5 +161,9 @@ provideAppearanceSettings({
 </script>
 
 <template>
-	<AppearanceSettingsLayout />
+	<div>
+		<AppearanceSettingsLayout />
+		<PaletteSettings />
+		<InterfaceSettings />
+	</div>
 </template>

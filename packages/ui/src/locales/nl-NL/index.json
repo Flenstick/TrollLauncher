@@ -3030,16 +3030,16 @@
     "defaultMessage": "Houd de bestanden geupdate wanneer de server verandert"
   },
   "modal.open-in-app.get-app": {
-    "defaultMessage": "Krijg de Modrinth App"
+    "defaultMessage": "Krijg de TrollLauncher"
   },
   "modal.open-in-app.opening-automatically": {
-    "defaultMessage": "De Modrinth App zal automatisch openen..."
+    "defaultMessage": "De TrollLauncher zal automatisch openen..."
   },
   "modal.open-in-app.title": {
-    "defaultMessage": "Bezig met de Modrinth App openen"
+    "defaultMessage": "Bezig met de TrollLauncher openen"
   },
   "modal.open-in-app.why-use": {
-    "defaultMessage": "Waarom de Modrinth App gebruiken"
+    "defaultMessage": "Waarom de TrollLauncher gebruiken"
   },
   "notification.error.title": {
     "defaultMessage": "Er is een fout opgetreden"
@@ -5310,7 +5310,7 @@
     "defaultMessage": "Nieuwe server"
   },
   "servers.list-empty.no-servers-description": {
-    "defaultMessage": "Installeer mods, nodig vrienden uit en speel samen – allemaal via de Modrinth app."
+    "defaultMessage": "Installeer mods, nodig vrienden uit en speel samen – allemaal via de TrollLauncher."
   },
   "servers.list-empty.one-click-mod-installs-description": {
     "defaultMessage": "Kies je favoriete mods en wij regelen de rest."
@@ -5319,7 +5319,7 @@
     "defaultMessage": "Mods installeren met één klik"
   },
   "servers.list-empty.play-with-friends-description": {
-    "defaultMessage": "Nodig vrienden uit om je server te spelen met één klik vanuit de Modrinth app."
+    "defaultMessage": "Nodig vrienden uit om je server te spelen met één klik vanuit de TrollLauncher."
   },
   "servers.list-empty.play-with-friends-title": {
     "defaultMessage": "Speel met vrienden"
@@ -5871,7 +5871,7 @@
     "defaultMessage": "Donker"
   },
   "settings.display.theme.description": {
-    "defaultMessage": "Selecteer je voorkeur kleurenthema voor de Modrinth App."
+    "defaultMessage": "Selecteer je voorkeur kleurenthema voor de TrollLauncher."
   },
   "settings.display.theme.light": {
     "defaultMessage": "Licht"
@@ -5916,13 +5916,13 @@
     "defaultMessage": "Zoekresultaten"
   },
   "settings.language.coverage.app-tooltip": {
-    "defaultMessage": "Ongeveer {percentage}% van de Modrinth App is beschikbaar in deze taal."
+    "defaultMessage": "Ongeveer {percentage}% van de TrollLauncher is beschikbaar in deze taal."
   },
   "settings.language.coverage.label": {
     "defaultMessage": "{percentage}% ondersteund"
   },
   "settings.language.coverage.website-tooltip": {
-    "defaultMessage": "Ongeveer {percentage}% van de Modrinth App is beschikbaar in deze taal."
+    "defaultMessage": "Ongeveer {percentage}% van de TrollLauncher is beschikbaar in deze taal."
   },
   "settings.language.description": {
     "defaultMessage": "Kies de taal van je voorkeur voor het/de {platform}. De vertalingen worden aangeleverd door vrijwilligers <crowdin-link>op Crowdin</crowdin-link>."

@@ -1141,6 +1141,14 @@ pub async fn launch_minecraft(
         command.arg("--add-opens=jdk.internal/jdk.internal.misc=ALL-UNNAMED");
     }
 
+    if credentials.provider == crate::state::AccountProvider::ElyBy {
+        let injector = crate::state::elyby::authlib_injector(
+            state.directories.libraries_dir(),
+        )
+        .await?;
+        command.arg(format!("-javaagent:{}=ely.by", injector.display()));
+    }
+
     command
         .arg("com.modrinth.theseus.MinecraftLaunch")
         .arg(version_info.main_class.clone())

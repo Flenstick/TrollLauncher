@@ -1,4 +1,5 @@
 import 'overlayscrollbars/overlayscrollbars.css'
+import '@/composables/use-interface'
 
 import { installTooltipDirective } from '@modrinth/ui'
 import { VueQueryPlugin } from '@tanstack/vue-query'
@@ -37,6 +38,10 @@ async function mount() {
 	debugStartup('Vue mount started')
 	app.mount('#app')
 	debugStartup('Vue mount completed')
+	if (import.meta.env.VITE_FPS_BENCH === 'true') {
+		const { runFpsBench } = await import('@/helpers/fps-bench')
+		void runFpsBench(router)
+	}
 }
 
 void mount()

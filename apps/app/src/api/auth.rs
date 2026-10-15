@@ -9,6 +9,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .invoke_handler(tauri::generate_handler![
             check_reachable,
             login,
+            elyby_login,
             remove_user,
             get_default_user,
             set_default_user,
@@ -84,6 +85,19 @@ pub async fn login<R: Runtime>(
 
     window.close()?;
     Ok(None)
+}
+
+/// Signs in with an Ely.by username or e-mail, password and optional 2FA code.
+#[tauri::command]
+pub async fn elyby_login(
+    username: String,
+    password: String,
+    totp: Option<String>,
+) -> Result<Credentials> {
+    Ok(
+        minecraft_auth::elyby_login(&username, &password, totp.as_deref())
+            .await?,
+    )
 }
 
 #[tauri::command]

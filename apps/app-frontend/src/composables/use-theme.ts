@@ -1,6 +1,8 @@
 import { prepareThemeColorTransition } from '@modrinth/ui'
 import { computed, reactive, ref, watch } from 'vue'
 
+import { usePalette } from '@/composables/use-palette.ts'
+
 export const THEME_OPTIONS = ['dark', 'light', 'oled', 'retro', 'system'] as const
 export const DARK_THEMES = ['dark', 'oled', 'retro'] as const
 
@@ -95,8 +97,11 @@ watch(preferredDark, (theme) => {
 	}
 })
 
+const palette = usePalette()
+const applied = computed<Theme>(() => palette.forcedBase ?? active.value)
+
 watch(
-	active,
+	applied,
 	(theme, previousTheme) => {
 		if (previousTheme && previousTheme !== theme) {
 			prepareThemeColorTransition()

@@ -1,0 +1,25 @@
+[Desktop Entry]
+Type=Application
+Name=TrollLauncher
+GenericName=Minecraft Launcher
+GenericName[ru]=Лаунчер Minecraft
+Comment=Minecraft launcher with modpacks and mods
+Comment[ru]=Лаунчер Minecraft со сборками и модами
+Exec=trolllauncher %u
+Icon=trolllauncher
+Terminal=false
+Categories=Game;
+Keywords=minecraft;launcher;mods;modpacks;майнкрафт;лаунчер;моды;
+StartupWMClass=trolllauncher
+MimeType=x-scheme-handler/trolllauncher;application/x-modrinth-modpack+zip;
+Actions=toggle;launch-last;
+
+[Desktop Action toggle]
+Name=Show / hide window
+Name[ru]=Показать / скрыть окно
+Exec=trolllauncher --toggle
+
+[Desktop Action launch-last]
+Name=Launch last instance
+Name[ru]=Запустить последнюю сборку
+Exec=trolllauncher --launch-last

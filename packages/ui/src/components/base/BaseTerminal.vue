@@ -43,6 +43,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { IconButton } from '#ui/components/base/buttons'
 import Input from '#ui/components/base/inputs/Input.vue'
+import { defineMessages, useVIntl } from '#ui/composables/i18n'
 import { useTerminal } from '#ui/composables/terminal'
 
 const props = withDefaults(
@@ -79,19 +80,42 @@ const FROG = [
 	'\x1B[32m   ~~  ~~  ~~\x1B[37m',
 ]
 
-const EMPTY_STATE_BUBBLES: Record<string, string[]> = {
-	server: [
-		'   __________________________________________________',
-		' /  Welcome to your \x1B[32mModrinth Server\x1B[37m!                  \\',
-		'|   Press the green start button to start your server! |',
-		' \\____________________________________________________/',
-	],
-	instance: [
-		'   _____________________________________________________________',
-		' /  Start your instance in the top right to start               \\',
-		'|   receiving live logs!                                        |',
-		' \\_____________________________________________________________/',
-	],
+const { formatMessage } = useVIntl()
+const messages = defineMessages({
+	serverLine1: {
+		id: 'terminal.empty.server.line-1',
+		defaultMessage: 'Welcome to your server!',
+	},
+	serverLine2: {
+		id: 'terminal.empty.server.line-2',
+		defaultMessage: 'Press the green start button to start your server!',
+	},
+	instanceLine1: {
+		id: 'terminal.empty.instance.line-1',
+		defaultMessage: 'Start your instance in the top right to start',
+	},
+	instanceLine2: {
+		id: 'terminal.empty.instance.line-2',
+		defaultMessage: 'receiving live logs!',
+	},
+})
+
+/** Draws a speech bubble sized to its text, so translations never break the frame. */
+function speechBubble(lines: string[]): string[] {
+	const width = Math.max(...lines.map((line) => line.length)) + 4
+	const [first, ...rest] = lines
+	return [
+		`   ${'_'.repeat(width)}`,
+		` /  ${first.padEnd(width - 2)}\\`,
+		...rest.map((line) => `|   ${line.padEnd(width - 2)}|`),
+		` \\${'_'.repeat(width)}/`,
+	]
+}
+
+function emptyStateBubble(type: 'server' | 'instance'): string[] {
+	return type === 'server'
+		? speechBubble([formatMessage(messages.serverLine1), formatMessage(messages.serverLine2)])
+		: speechBubble([formatMessage(messages.instanceLine1), formatMessage(messages.instanceLine2)])
 }
 
 const emit = defineEmits<{
@@ -132,11 +156,8 @@ const {
 function writeEmptyState() {
 	if (!terminal.value || !props.emptyStateType) return
 	terminal.value.reset()
-	const bubble = EMPTY_STATE_BUBBLES[props.emptyStateType]
-	if (bubble) {
-		for (const line of [...bubble, ...FROG]) {
-			terminal.value.writeln(line)
-		}
+	for (const line of [...emptyStateBubble(props.emptyStateType), ...FROG]) {
+		terminal.value.writeln(line)
 	}
 	showingEmptyState.value = true
 }

@@ -165,7 +165,7 @@
     "message": "Ocultar crachá"
   },
   "app.appearance-settings.minimize-launcher.description": {
-    "message": "Minimizar a Modrinth App quando o Minecraft iniciar."
+    "message": "Minimizar a TrollLauncher quando o Minecraft iniciar."
   },
   "app.appearance-settings.minimize-launcher.title": {
     "message": "Minimizar app"
@@ -1437,13 +1437,13 @@
     "message": "Pode removê-lo apenas desta instância ou de todas as instâncias sincronizadas. Se o remover apenas desta instância, as substituições serão ativadas e esta instância deixará de receber as alterações sincronizadas para estes tipos de conteúdo."
   },
   "app.update-popup.body.download-complete": {
-    "message": "Modrinth App v{version} acabou de ser transferida. Recarrega para atualizar agora, ou automaticamente quando fechares a Modrinth App."
+    "message": "TrollLauncher v{version} acabou de ser transferida. Recarrega para atualizar agora, ou automaticamente quando fechares a TrollLauncher."
   },
   "app.update-popup.body.linux": {
-    "message": "Modrinth App v{version} está disponível. Usa o teu gestor de pacotes para atualizar e receber as correções e recursos mais recentes!"
+    "message": "TrollLauncher v{version} está disponível. Usa o teu gestor de pacotes para atualizar e receber as correções e recursos mais recentes!"
   },
   "app.update-popup.body.metered": {
-    "message": "Modrinth App v{version} está disponível! Como estás numa rede com tráfego limitado, não a transferimos automaticamente."
+    "message": "TrollLauncher v{version} está disponível! Como estás numa rede com tráfego limitado, não a transferimos automaticamente."
   },
   "app.update-popup.changelog": {
     "message": "Lista de alterações"

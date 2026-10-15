@@ -64,3 +64,12 @@ export async function remove_user(user) {
 export async function users() {
 	return await invoke('plugin:auth|get_users')
 }
+
+/// Signs in with an Ely.by account (username or e-mail, password, optional 2FA code)
+/// Throws an error containing ELYBY_TWO_FACTOR_REQUIRED when a 2FA code is needed
+/// Returns a Credentials object
+export async function elyby_login(username, password, totp) {
+	return await invoke('plugin:auth|elyby_login', { username, password, totp: totp || null })
+}
+
+export const ELYBY_TWO_FACTOR_REQUIRED = 'elyby:two-factor-required'

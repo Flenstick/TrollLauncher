@@ -1,6 +1,11 @@
 use tauri_build::{DefaultPermissionRule, InlinedPlugin};
 
 fn main() {
+    // Lets shared libraries resolve `ioctl` to the vblank shim in src/vblank_shim.rs.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        println!("cargo:rustc-link-arg-bins=-Wl,--export-dynamic-symbol=ioctl");
+    }
+
     // Sadly, there is no better way to do it right now
     // You could try parsing source code here and detecting #[tauri::command]
     // But I think it's not worth it
@@ -9,11 +14,25 @@ fn main() {
         tauri_build::Attributes::new()
             .codegen(tauri_build::CodegenContext::new())
             .plugin(
+                "troll-tray",
+                InlinedPlugin::new()
+                    .commands(&[
+                        "get_settings",
+                        "set_settings",
+                        "resolve_close",
+                        "refresh_tray",
+                    ])
+                    .default_permission(
+                        DefaultPermissionRule::AllowAllCommands,
+                    ),
+            )
+            .plugin(
                 "auth",
                 InlinedPlugin::new()
                     .commands(&[
                         "check_reachable",
                         "login",
+                        "elyby_login",
                         "remove_user",
                         "get_default_user",
                         "set_default_user",

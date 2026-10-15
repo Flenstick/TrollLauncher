@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ChevronLeftIcon, ChevronRightIcon, RightArrowIcon } from '@modrinth/assets'
-import { defineMessages, IconButton, TextLogo, useVIntl } from '@modrinth/ui'
+import { defineMessages, IconButton, useVIntl } from '@modrinth/ui'
 import { useRouter } from 'vue-router'
+
+import TrollLogo from '@/components/ui/TrollLogo.vue'
 
 import AppActionBar from './action-bar.vue'
 import Breadcrumbs from './breadcrumbs.vue'
@@ -33,7 +35,7 @@ const messages = defineMessages({
 		class="app-title-bar relative z-[2] flex bg-bg-raised pl-1 [grid-area:status] [.mac-traffic-lights_&]:pl-20"
 	>
 		<div data-tauri-drag-region class="flex min-w-0 flex-1 items-center overflow-hidden p-2">
-			<TextLogo class="h-7 w-auto shrink-0 text-contrast pointer-events-none" />
+			<TrollLogo class="h-6 shrink-0 text-contrast pointer-events-none" />
 			<div data-tauri-drag-region class="ml-2 flex shrink-0 items-center gap-2">
 				<IconButton
 					type="outlined"

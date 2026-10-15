@@ -24,7 +24,7 @@
 				<Input
 					v-model="searchQuery"
 					:icon="SearchIcon"
-					placeholder="Search logs"
+					:placeholder="formatMessage(messages.searchPlaceholder)"
 					wrapper-class="flex-1"
 					size="medium"
 					clearable
@@ -78,22 +78,32 @@
 			@ready="handleTerminalReady"
 		/>
 	</div>
-	<ShareModal ref="shareModal" header="Share Logs" link :social-buttons="false" />
-	<NewModal ref="deleteModal" header="Delete log file" :fade="'danger'" max-width="500px">
+	<ShareModal
+		ref="shareModal"
+		:header="formatMessage(messages.shareHeader)"
+		link
+		:social-buttons="false"
+	/>
+	<NewModal
+		ref="deleteModal"
+		:header="formatMessage(messages.deleteHeader)"
+		:fade="'danger'"
+		max-width="500px"
+	>
 		<div class="flex flex-col gap-6">
-			<Admonition type="critical" header="This is irreversible">
-				Deleting this log file cannot be undone. Are you sure you want to continue?
+			<Admonition type="critical" :header="formatMessage(messages.deleteIrreversible)">
+				{{ formatMessage(messages.deleteBody) }}
 			</Admonition>
 		</div>
 		<template #actions>
 			<div class="flex justify-end gap-2">
 				<Button type="outlined" @click="deleteModal?.hide()">
 					<XIcon />
-					Cancel
+					{{ formatMessage(messages.deleteCancel) }}
 				</Button>
 				<Button type="colored" color="red" :disabled="isDeleting" @click="confirmDelete">
 					<TrashIcon />
-					Delete
+					{{ formatMessage(messages.deleteConfirm) }}
 				</Button>
 			</div>
 		</template>
@@ -114,6 +124,7 @@ import Combobox from '#ui/components/base/Combobox.vue'
 import Input from '#ui/components/base/inputs/Input.vue'
 import NewModal from '#ui/components/modal/NewModal.vue'
 import ShareModal from '#ui/components/modal/ShareModal.vue'
+import { defineMessages, useVIntl } from '#ui/composables/i18n'
 import { useModalStack } from '#ui/composables/modal-stack'
 import { injectModrinthClient } from '#ui/providers'
 import { injectModalBehavior } from '#ui/providers/modal-behavior'
@@ -133,6 +144,58 @@ import {
 import type { ConditionalLevel } from './composables/console-filtering'
 import { injectConsoleManager } from './providers'
 import type { LogLevel, LogLine } from './types'
+
+const { formatMessage } = useVIntl()
+const messages = defineMessages({
+	searchPlaceholder: {
+		id: 'console.search.placeholder',
+		defaultMessage: 'Search logs',
+	},
+	inputDisabled: {
+		id: 'console.input.disabled',
+		defaultMessage: 'Command input disabled',
+	},
+	inputServerNotRunning: {
+		id: 'console.input.server-not-running',
+		defaultMessage: 'Server is not running',
+	},
+	deleteFailed: {
+		id: 'console.delete.failed',
+		defaultMessage: 'Failed to delete log file',
+	},
+	shareFailed: {
+		id: 'console.share.failed',
+		defaultMessage: 'Failed to share logs',
+	},
+	errorUnknown: {
+		id: 'console.error.unknown',
+		defaultMessage: 'Unknown error.',
+	},
+	shareHeader: {
+		id: 'console.share.header',
+		defaultMessage: 'Share Logs',
+	},
+	deleteHeader: {
+		id: 'console.delete.header',
+		defaultMessage: 'Delete log file',
+	},
+	deleteIrreversible: {
+		id: 'console.delete.irreversible',
+		defaultMessage: 'This is irreversible',
+	},
+	deleteBody: {
+		id: 'console.delete.body',
+		defaultMessage: 'Deleting this log file cannot be undone. Are you sure you want to continue?',
+	},
+	deleteCancel: {
+		id: 'console.delete.cancel',
+		defaultMessage: 'Cancel',
+	},
+	deleteConfirm: {
+		id: 'console.delete.confirm',
+		defaultMessage: 'Delete',
+	},
+})
 
 const ctx = injectConsoleManager()
 const client = injectModrinthClient()
@@ -251,7 +314,9 @@ const resolvedInputDisabledTooltip = computed(() =>
 )
 
 const resolvedInputDisabledPlaceholder = computed(() =>
-	resolvedInputDisabledTooltip.value ? 'Command input disabled' : 'Server is not running',
+	resolvedInputDisabledTooltip.value
+		? formatMessage(messages.inputDisabled)
+		: formatMessage(messages.inputServerNotRunning),
 )
 
 const resolvedShareDisabled = computed(() => {
@@ -431,8 +496,8 @@ async function confirmDelete() {
 		console.error('Failed to delete log file:', err)
 		addNotification({
 			type: 'error',
-			title: 'Failed to delete log file',
-			text: typeof err === 'string' ? err : 'Unknown error.',
+			title: formatMessage(messages.deleteFailed),
+			text: typeof err === 'string' ? err : formatMessage(messages.errorUnknown),
 		})
 	} finally {
 		isDeleting.value = false
@@ -454,8 +519,8 @@ async function handleShare() {
 		console.error('Failed to share logs:', err)
 		addNotification({
 			type: 'error',
-			title: 'Failed to share logs',
-			text: typeof err === 'string' ? err : 'Unknown error.',
+			title: formatMessage(messages.shareFailed),
+			text: typeof err === 'string' ? err : formatMessage(messages.errorUnknown),
 		})
 	} finally {
 		isSharing.value = false

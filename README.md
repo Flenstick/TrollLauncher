@@ -1,49 +1,105 @@
-<picture>
-	<source media="(prefers-color-scheme: light)" srcset=".github/assets/monorepo_cover_light.png">
-	<img alt="Modrinth Monorepo Cover" src=".github/assets/monorepo_cover.png">
-</picture>
+<p align="center">
+  <img src=".github/media/banner.png" alt="TrollLauncher" width="640">
+</p>
 
-![Issues](https://img.shields.io/github/issues-raw/Modrinth/code?color=c78aff&label=issues&style=for-the-badge)
-![Pull Requests](https://img.shields.io/github/issues-pr-raw/Modrinth/code?color=c78aff&label=PRs&style=for-the-badge)
-![Contributors](https://img.shields.io/github/contributors/Modrinth/code?color=c78aff&label=contributors&style=for-the-badge)
-![Lines of Code](https://img.shields.io/endpoint?url=https://loctopus.creeperkatze.dev/github/modrinth/code/badge?style=flat&logoColor=white&color=c78aff&style=for-the-badge)
-![Commit Activity](https://img.shields.io/github/commit-activity/m/Modrinth/code?color=c78aff&label=commits&style=for-the-badge)
-![Last Commit](https://img.shields.io/github/last-commit/Modrinth/code?color=c78aff&label=last%20commit&style=for-the-badge)
+<p align="center">
+  <b>Лаунчер Minecraft со сборками, модами, темами и входом через Ely.by</b><br>
+  <sub>Форк Modrinth App с упором на настройку под себя</sub>
+</p>
 
-## Modrinth Monorepo
+<p align="center">
+  <a href="https://github.com/Flenstick/TrollLauncher/releases/latest"><img alt="Релиз" src="https://img.shields.io/github/v/release/Flenstick/TrollLauncher?style=flat-square&color=e5484d&label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7"></a>
+  <img alt="Arch Linux" src="https://img.shields.io/badge/Arch%20Linux-x86__64-1793d1?style=flat-square&logo=archlinux&logoColor=white">
+  <a href="apps/app/LICENSE"><img alt="Лицензия" src="https://img.shields.io/badge/%D0%BB%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-GPL--3.0-3a3b40?style=flat-square"></a>
+</p>
 
-Welcome to the Modrinth Monorepo, the primary codebase for the Modrinth website, app, API and documentation. It contains ![Lines of code](https://img.shields.io/endpoint?url=https://loctopus.creeperkatze.dev/github/modrinth/code/badge%3Fformat%3Dhuman&logoColor=white&color=black&label=) lines of code and has ![Contributors](https://img.shields.io/github/contributors/Modrinth/code?color=black&label=) contributors!
+<p align="center">
+  <img src=".github/media/screenshot-browse.png" alt="Каталог сборок" width="900">
+</p>
 
-If you're not a developer and you've stumbled upon this repository, you can access the web interface on the [Modrinth website](https://modrinth.com) and download the latest release of the app [here](https://modrinth.com/app).
+## Установка
 
-## Development
+Arch Linux и производные (CachyOS, EndeavourOS, Manjaro):
 
-This repository contains several projects. For detailed development information, please refer to their respective guides:
+```sh
+curl -fsSL https://raw.githubusercontent.com/Flenstick/TrollLauncher/main/install.sh | bash
+```
 
-| Project       | Directory              | Guide                                                     |
-| ------------- | ---------------------- | --------------------------------------------------------- |
-| Website       | `apps/frontend`        | [Guide](https://docs.modrinth.com/contributing/knossos/)  |
-| App           | `apps/app`             | [Guide](https://docs.modrinth.com/contributing/theseus/)  |
-| API           | `apps/labrinth`        | [Guide](https://docs.modrinth.com/contributing/labrinth/) |
-| Meta          | `apps/daedalus_client` | [Guide](https://docs.modrinth.com/contributing/daedalus/) |
-| Documentation | `apps/docs`            | [Guide](https://docs.modrinth.com/contributing/docs/)     |
+Скрипт соберёт пакет `trolllauncher-bin` и поставит его через pacman вместе с зависимостями.
+После установки лаунчер появится в меню приложений. Обновление — та же команда.
 
-Shared libraries live in `packages/`.
+<details>
+<summary>Удаление и ручная установка</summary>
 
-## Contributing
+Удалить:
 
-We welcome contributions! Before submitting any contributions, please read our [contributing guidelines](https://docs.modrinth.com/contributing/getting-started/).
+```sh
+curl -fsSL https://raw.githubusercontent.com/Flenstick/TrollLauncher/main/install.sh | bash -s -- --uninstall
+```
 
-If you plan to fork this repository for your own purposes, please review our [copying guidelines](COPYING.md).
+Сборки и миры остаются в `~/.local/share/TrollLauncher`.
 
-## Security
+Вручную через PKGBUILD:
 
-If you discover a security vulnerability within our codebase, please follow our [responsible disclosure guidelines](https://modrinth.com/legal/security).
+```sh
+git clone --depth 1 https://github.com/Flenstick/TrollLauncher
+cd TrollLauncher/packaging/arch
+makepkg -si
+```
 
-## Support
+Или скачайте архив со [страницы релизов](https://github.com/Flenstick/TrollLauncher/releases/latest):
+внутри бинарник `trolllauncher`, ярлык `.desktop` и иконки.
 
-If you need help with the Modrinth web interface or app, please visit our [support page](https://support.modrinth.com). For general inquiries, you can also join our [Discord server](https://discord.modrinth.com).
+</details>
 
-## License
+## Возможности
 
-All packages in this repository are licensed under their respective licenses. See the [copying guidelines](COPYING.md) for details, including restrictions on Modrinth branding.
+**Всё, что умеет Modrinth App** — каталог сборок, модов, шейдеров и ресурспаков, установка в один клик,
+Fabric / Forge / NeoForge / Quilt, импорт `.mrpack`, Java скачивается сама.
+
+**Темы.** Набор цветовых палитр, свой акцентный цвет, светлая и тёмная основа. Логотип перекрашивается
+под тему.
+
+**Интерфейс под себя.** Масштаб 80–150 % (ползунок или <kbd>Ctrl</kbd> <kbd>+</kbd> / <kbd>−</kbd> / <kbd>0</kbd>),
+шрифт на выбор: Inter, Golos Text, системный или любой установленный. Русский язык по умолчанию.
+
+**Ely.by.** Вход по нику или почте с поддержкой 2FA, скины и головы с Ely.by, запуск через
+authlib-injector — играть можно без лицензии Microsoft.
+
+**Трей и фон.** Иконка с меню: последние сборки, остановка игры, время в игре. Что делает крестик,
+клик по иконке, автозапуск — всё настраивается. Команды для горячих клавиш (работают и на Wayland):
+
+```sh
+trolllauncher --toggle        # показать или скрыть окно
+trolllauncher --launch-last   # запустить последнюю сборку
+trolllauncher --show          # показать окно
+```
+
+**Плавность.** На Linux снят лимит в 60 FPS у WebKitGTK — прокрутка и анимации идут с частотой
+монитора, в том числе на NVIDIA.
+
+**Без лишнего.** Реклама, телеметрия и сбор ошибок выключены.
+
+## Сборка из исходников
+
+Нужны Rust (версия из `rust-toolchain.toml`), Node.js, pnpm и зависимости Tauri:
+
+```sh
+sudo pacman -S --needed base-devel webkit2gtk-4.1 libayatana-appindicator librsvg nodejs pnpm rustup
+git clone https://github.com/Flenstick/TrollLauncher && cd TrollLauncher
+pnpm install
+cp packages/app-lib/.env.prod packages/app-lib/.env
+
+pnpm app:dev                              # запуск в режиме разработки
+cd apps/app && pnpm tauri build --no-bundle   # релизный бинарник: target/release/theseus_gui
+```
+
+Код лаунчера — `apps/app` (Rust, Tauri) и `apps/app-frontend` (Vue). Общая библиотека — `packages/app-lib`.
+
+## Лицензия
+
+TrollLauncher основан на [Modrinth App](https://github.com/modrinth/code) и распространяется
+под **GPL-3.0**, как и оригинал. Проект не связан с Modrinth и Rinth, Inc.; товарные знаки и логотипы
+Modrinth из форка удалены. Подробности — в [COPYING.md](COPYING.md).
+
+Minecraft — товарный знак Mojang AB. Проект не связан с Mojang и Microsoft.

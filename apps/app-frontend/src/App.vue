@@ -10,7 +10,6 @@ import {
 	PlayIcon,
 	PlusIcon,
 	RefreshCwIcon,
-	ServerStackIcon,
 	SettingsIcon,
 	ShirtIcon,
 	SpinnerIcon,
@@ -81,6 +80,7 @@ import QuickInstanceSwitcher from '@/components/ui/QuickInstanceSwitcher.vue'
 import SharedInstanceInviteHandler from '@/components/ui/shared-instances/shared-instance-invite-handler/index.vue'
 import SplashScreen from '@/components/ui/SplashScreen.vue'
 import SurveyPopup from '@/components/ui/SurveyPopup.vue'
+import TrayBridge from '@/components/ui/TrayBridge.vue'
 import { useCheckDisableMouseover } from '@/composables/macCssFix.js'
 import { useAppEvent } from '@/composables/use-app-event'
 import { useAppSettings } from '@/composables/use-app-settings.ts'
@@ -308,9 +308,7 @@ const hasPlus = computed(
 		(hasMidasBadge(credentials.value.user) ||
 			hasActivePride26Midas(authenticatedModrinthUser.value?.campaigns?.pride_26)),
 )
-const showAd = computed(
-	() => sidebarVisible.value && !hasPlus.value && credentials.value !== undefined,
-)
+const showAd = computed(() => false)
 const adConsentAvailable = computed(() => credentials.value !== undefined && !hasPlus.value)
 providePageContext({
 	hierarchicalSidebarAvailable: ref(true),
@@ -962,6 +960,9 @@ const updateToPlayModal = ref()
 
 const modrinthLoginModal = ref()
 const appSettingsModal = ref()
+if (import.meta.env.VITE_FPS_BENCH === 'true') {
+	window.__trollOpenSettings = () => appSettingsModal.value?.show()
+}
 const newUpdateModal = ref()
 
 provide(appSettingsModalOpenProfileKey, () => appSettingsModal.value?.showProfile())
@@ -1586,16 +1587,16 @@ const updatePopupMessages = defineMessages({
 	},
 	meteredBody: {
 		id: 'app.update-popup.body.metered',
-		defaultMessage: `Modrinth App v{version} is available now! Since you're on a metered network, we didn't automatically download it.`,
+		defaultMessage: `TrollLauncher v{version} is available now! Since you're on a metered network, we didn't automatically download it.`,
 	},
 	downloadedBody: {
 		id: 'app.update-popup.body.download-complete',
-		defaultMessage: `Modrinth App v{version} has finished downloading. Reload to update now, or automatically when you close Modrinth App.`,
+		defaultMessage: `TrollLauncher v{version} has finished downloading. Reload to update now, or automatically when you close TrollLauncher.`,
 	},
 	linuxBody: {
 		id: 'app.update-popup.body.linux',
 		defaultMessage:
-			'Modrinth App v{version} is available. Use your package manager to update for the latest features and fixes!',
+			'TrollLauncher v{version} is available. Use your package manager to update for the latest features and fixes!',
 	},
 	reload: {
 		id: 'app.update-popup.reload',
@@ -1985,6 +1986,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 			</div>
 		</Transition>
 		<AppSettingsModal ref="appSettingsModal" />
+		<TrayBridge />
 		<NewUpdateModal ref="newUpdateModal" />
 		<Suspense>
 			<ModrinthAccountRequiredModal ref="modrinthLoginModal" :request-auth="requestModrinthAuth" />
@@ -2046,18 +2048,6 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 				to="/screenshots"
 			>
 				<ImageIcon />
-			</NavButton>
-			<NavButton
-				v-tooltip.right="formatMessage(messages.modrinthHosting)"
-				to="/hosting/manage"
-				:is-primary="(r) => r.path === '/hosting/manage' || r.path === '/hosting/manage/'"
-				:is-subpage="
-					(r) =>
-						(r.path.startsWith('/hosting/manage/') && r.path !== '/hosting/manage/') ||
-						((r.path.startsWith('/browse') || r.path.startsWith('/project')) && r.query.sid)
-				"
-			>
-				<ServerStackIcon />
 			</NavButton>
 			<suspense>
 				<QuickInstanceSwitcher>
@@ -2365,7 +2355,6 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 	right: calc(-1 * var(--left-bar-width));
 	bottom: calc(-1 * var(--left-bar-width));
 	border-radius: var(--radius-xl);
-	box-shadow: 1px 1px 15px rgba(0, 0, 0, 0.1) inset;
 	border-color: var(--surface-5);
 	border-width: 1px;
 	border-style: solid;

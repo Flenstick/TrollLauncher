@@ -3012,16 +3012,16 @@
     "defaultMessage": "Зберігання файлів оновленими, попри зміни сервера"
   },
   "modal.open-in-app.get-app": {
-    "defaultMessage": "Отримати Modrinth App"
+    "defaultMessage": "Отримати TrollLauncher"
   },
   "modal.open-in-app.opening-automatically": {
-    "defaultMessage": "Modrinth App відкриється автоматично…"
+    "defaultMessage": "TrollLauncher відкриється автоматично…"
   },
   "modal.open-in-app.title": {
-    "defaultMessage": "Відкриття Modrinth App"
+    "defaultMessage": "Відкриття TrollLauncher"
   },
   "modal.open-in-app.why-use": {
-    "defaultMessage": "Навіщо використовувати Modrinth App"
+    "defaultMessage": "Навіщо використовувати TrollLauncher"
   },
   "notification.error.title": {
     "defaultMessage": "Виникла помилка"
@@ -5412,7 +5412,7 @@
     "defaultMessage": "Новий сервер"
   },
   "servers.list-empty.no-servers-description": {
-    "defaultMessage": "Установлюйте моди, запрошуйте друзів і грайте разом із Modrinth App."
+    "defaultMessage": "Установлюйте моди, запрошуйте друзів і грайте разом із TrollLauncher."
   },
   "servers.list-empty.one-click-mod-installs-description": {
     "defaultMessage": "Виберіть свої улюблені моди, а ми подбаємо про решту."
@@ -5421,7 +5421,7 @@
     "defaultMessage": "Установлення в одне натискання"
   },
   "servers.list-empty.play-with-friends-description": {
-    "defaultMessage": "Запросіть друзів пограти на вашому сервері в один клац з Modrinth App."
+    "defaultMessage": "Запросіть друзів пограти на вашому сервері в один клац з TrollLauncher."
   },
   "servers.list-empty.play-with-friends-title": {
     "defaultMessage": "Грайте з друзями"
@@ -6054,7 +6054,7 @@
     "defaultMessage": "Темна"
   },
   "settings.display.theme.description": {
-    "defaultMessage": "Оберіть бажану колірну тему для Modrinth App."
+    "defaultMessage": "Оберіть бажану колірну тему для TrollLauncher."
   },
   "settings.display.theme.light": {
     "defaultMessage": "Світла"
@@ -6099,7 +6099,7 @@
     "defaultMessage": "Результати пошуку"
   },
   "settings.language.coverage.app-tooltip": {
-    "defaultMessage": "Близько {percentage}% Modrinth App доступно цією мовою."
+    "defaultMessage": "Близько {percentage}% TrollLauncher доступно цією мовою."
   },
   "settings.language.coverage.label": {
     "defaultMessage": "Підтримується {percentage}%"

@@ -1,0 +1,28 @@
+name: Ошибка
+description: Что-то работает не так
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Что случилось
+      description: Что вы делали, что ожидали увидеть и что произошло на самом деле.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Версия TrollLauncher
+      description: Видна внизу настроек.
+      placeholder: 1.0.0
+  - type: input
+    id: system
+    attributes:
+      label: Система
+      placeholder: Arch Linux, KDE Plasma (Wayland), NVIDIA
+  - type: textarea
+    id: logs
+    attributes:
+      label: Журнал
+      description: Если ошибка при запуске игры — приложите журнал сборки.
+      render: text

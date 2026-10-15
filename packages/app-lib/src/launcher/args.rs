@@ -269,6 +269,10 @@ pub async fn get_minecraft_arguments(
 ) -> crate::Result<Vec<String>> {
     let access_token = credentials.access_token.clone();
     let profile = credentials.maybe_online_profile().await;
+    let user_type = match credentials.provider {
+        crate::state::AccountProvider::Microsoft => "msa",
+        crate::state::AccountProvider::ElyBy => "mojang",
+    };
     let mut parsed_arguments = Vec::new();
 
     if let Some(arguments) = arguments {
@@ -288,6 +292,7 @@ pub async fn get_minecraft_arguments(
                     version_type,
                     resolution,
                     quick_play_type,
+                    user_type,
                 )
             },
             java_arch,
@@ -307,6 +312,7 @@ pub async fn get_minecraft_arguments(
                 version_type,
                 resolution,
                 quick_play_type,
+                user_type,
             )?);
         }
     }
@@ -339,6 +345,7 @@ fn parse_minecraft_argument(
     version_type: &VersionType,
     resolution: WindowSize,
     quick_play_type: &QuickPlayType,
+    user_type: &str,
 ) -> crate::Result<String> {
     Ok(argument
         .replace("${accessToken}", access_token)
@@ -351,7 +358,7 @@ fn parse_minecraft_argument(
         .replace("${uuid}", &uuid.simple().to_string())
         .replace("${clientid}", "c4502edb-87c6-40cb-b595-64a280cf8906")
         .replace("${user_properties}", "{}")
-        .replace("${user_type}", "msa")
+        .replace("${user_type}", user_type)
         .replace("${version_name}", version)
         .replace("${assets_index_name}", asset_index_name)
         .replace(

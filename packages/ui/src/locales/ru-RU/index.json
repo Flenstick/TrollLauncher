@@ -374,6 +374,60 @@
   "console.actions.share": {
     "defaultMessage": "Поделиться"
   },
+  "console.delete.body": {
+    "defaultMessage": "Удалённый файл журнала нельзя восстановить. Продолжить?"
+  },
+  "console.delete.cancel": {
+    "defaultMessage": "Отмена"
+  },
+  "console.delete.confirm": {
+    "defaultMessage": "Удалить"
+  },
+  "console.delete.failed": {
+    "defaultMessage": "Не удалось удалить файл журнала"
+  },
+  "console.delete.header": {
+    "defaultMessage": "Удалить файл журнала"
+  },
+  "console.delete.irreversible": {
+    "defaultMessage": "Это действие необратимо"
+  },
+  "console.error.unknown": {
+    "defaultMessage": "Неизвестная ошибка."
+  },
+  "console.filter.all": {
+    "defaultMessage": "Все"
+  },
+  "console.filter.debug": {
+    "defaultMessage": "Отладка"
+  },
+  "console.filter.error": {
+    "defaultMessage": "Ошибки"
+  },
+  "console.filter.info": {
+    "defaultMessage": "Инфо"
+  },
+  "console.filter.trace": {
+    "defaultMessage": "Трассировка"
+  },
+  "console.filter.warn": {
+    "defaultMessage": "Предупреждения"
+  },
+  "console.input.disabled": {
+    "defaultMessage": "Ввод команд отключён"
+  },
+  "console.input.server-not-running": {
+    "defaultMessage": "Сервер не запущен"
+  },
+  "console.search.placeholder": {
+    "defaultMessage": "Поиск по журналу"
+  },
+  "console.share.failed": {
+    "defaultMessage": "Не удалось поделиться журналом"
+  },
+  "console.share.header": {
+    "defaultMessage": "Поделиться журналом"
+  },
   "content-type.content.lowercase": {
     "defaultMessage": "контент"
   },
@@ -2976,16 +3030,16 @@
     "defaultMessage": "Обновление сборки при изменениях на сервере"
   },
   "modal.open-in-app.get-app": {
-    "defaultMessage": "Скачать Modrinth App"
+    "defaultMessage": "Скачать TrollLauncher"
   },
   "modal.open-in-app.opening-automatically": {
-    "defaultMessage": "Modrinth App откроется автоматически..."
+    "defaultMessage": "TrollLauncher откроется автоматически..."
   },
   "modal.open-in-app.title": {
-    "defaultMessage": "Открытие Modrinth App"
+    "defaultMessage": "Открытие TrollLauncher"
   },
   "modal.open-in-app.why-use": {
-    "defaultMessage": "Преимущества Modrinth App"
+    "defaultMessage": "Преимущества TrollLauncher"
   },
   "notification.error.title": {
     "defaultMessage": "Произошла ошибка"
@@ -5373,7 +5427,7 @@
     "defaultMessage": "Новый сервер"
   },
   "servers.list-empty.no-servers-description": {
-    "defaultMessage": "Играйте в сборки вместе с друзьями через Modrinth App."
+    "defaultMessage": "Играйте в сборки вместе с друзьями через TrollLauncher."
   },
   "servers.list-empty.one-click-mod-installs-description": {
     "defaultMessage": "Выбирайте любимые моды, а мы сделаем всё остальное."
@@ -5382,7 +5436,7 @@
     "defaultMessage": "Установка модов в один клик"
   },
   "servers.list-empty.play-with-friends-description": {
-    "defaultMessage": "Пригласите ваших друзей поиграть на вашем сервере в один клик в Modrinth App."
+    "defaultMessage": "Пригласите ваших друзей поиграть на вашем сервере в один клик в TrollLauncher."
   },
   "servers.list-empty.play-with-friends-title": {
     "defaultMessage": "Совместная игра"
@@ -6015,7 +6069,7 @@
     "defaultMessage": "Тёмная"
   },
   "settings.display.theme.description": {
-    "defaultMessage": "Выберите тему для Modrinth."
+    "defaultMessage": "Выберите тему для TrollLauncher."
   },
   "settings.display.theme.light": {
     "defaultMessage": "Светлая"
@@ -6060,7 +6114,7 @@
     "defaultMessage": "Результаты поиска"
   },
   "settings.language.coverage.app-tooltip": {
-    "defaultMessage": "Около {percentage}% Modrinth App переведено на этот язык."
+    "defaultMessage": "Около {percentage}% TrollLauncher переведено на этот язык."
   },
   "settings.language.coverage.label": {
     "defaultMessage": "Поддерживается {percentage}%"
@@ -6766,6 +6820,18 @@
   },
   "tag.loader.waterfall": {
     "defaultMessage": "Waterfall"
+  },
+  "terminal.empty.instance.line-1": {
+    "defaultMessage": "Запустите сборку кнопкой «Играть»"
+  },
+  "terminal.empty.instance.line-2": {
+    "defaultMessage": "справа вверху — здесь появится журнал игры!"
+  },
+  "terminal.empty.server.line-1": {
+    "defaultMessage": "Добро пожаловать на ваш сервер!"
+  },
+  "terminal.empty.server.line-2": {
+    "defaultMessage": "Нажмите кнопку запуска, чтобы включить сервер!"
   },
   "time-frame-picker.apply": {
     "defaultMessage": "Применить"

@@ -1,17 +1,15 @@
 <script setup lang="ts">
 import {
 	CoffeeIcon,
-	HeartHandshakeIcon,
 	LanguagesIcon,
 	LightBulbIcon,
 	MicrochipIcon,
-	ModrinthIcon,
+	MonitorCogIcon,
 	PaintbrushIcon,
 	RefreshCwIcon,
 	Settings2Icon,
 	ShieldIcon,
 	ToggleRightIcon,
-	UserIcon,
 } from '@modrinth/assets'
 import {
 	commonMessages,
@@ -30,16 +28,16 @@ import { platform as getOsPlatform, version as getOsVersion } from '@tauri-apps/
 import { computed, provide, ref } from 'vue'
 
 import PrivacySettings from '@/components/ui/settings/account/PrivacySettings.vue'
-import ProfileSettings from '@/components/ui/settings/account/ProfileSettings.vue'
-import SocialSettings from '@/components/ui/settings/account/SocialSettings.vue'
 import AppearanceSettings from '@/components/ui/settings/display/AppearanceSettings.vue'
 import BehaviorSettings from '@/components/ui/settings/display/BehaviorSettings.vue'
 import FeatureFlagSettings from '@/components/ui/settings/display/FeatureFlagSettings.vue'
 import FeaturesSettings from '@/components/ui/settings/display/FeaturesSettings.vue'
 import LanguageSettings from '@/components/ui/settings/display/LanguageSettings.vue'
+import TraySettings from '@/components/ui/settings/display/TraySettings.vue'
 import InstancesSyncedSettings from '@/components/ui/settings/instances/instances-synced-settings/index.vue'
 import JavaSettings from '@/components/ui/settings/instances/JavaSettings.vue'
 import ResourceManagementSettings from '@/components/ui/settings/instances/ResourceManagementSettings.vue'
+import TrollMark from '@/components/ui/TrollMark.vue'
 import { useAppSettings } from '@/composables/use-app-settings.ts'
 import { appSettingsKeys, appSettingsQueryOptions, set } from '@/helpers/settings.ts'
 import {
@@ -116,23 +114,20 @@ const tabs = [
 		badge: commonMessages.beta,
 	},
 	{
+		name: defineMessage({
+			id: 'app.settings.tabs.tray',
+			defaultMessage: 'Tray and background',
+		}),
+		category: tabCategories.display,
+		icon: MonitorCogIcon,
+		content: TraySettings,
+	},
+	{
 		name: commonSettingsMessages.featureFlags,
 		category: tabCategories.display,
 		icon: ToggleRightIcon,
 		content: FeatureFlagSettings,
 		developerOnly: true,
-	},
-	{
-		name: commonSettingsMessages.profile,
-		category: tabCategories.account,
-		icon: UserIcon,
-		content: ProfileSettings,
-	},
-	{
-		name: commonSettingsMessages.social,
-		category: tabCategories.account,
-		icon: HeartHandshakeIcon,
-		content: SocialSettings,
 	},
 	{
 		name: defineMessage({
@@ -229,11 +224,8 @@ function show() {
 	modal.value?.show()
 }
 
+/** Modrinth profile settings were removed, so this opens settings on the default tab. */
 function showProfile(): void {
-	const profileTabIndex = availableTabs.value.findIndex((tab) => tab.content === ProfileSettings)
-	if (profileTabIndex >= 0) {
-		modal.value?.setTab(profileTabIndex)
-	}
 	modal.value?.show()
 }
 
@@ -312,7 +304,7 @@ const messages = defineMessages({
 	},
 	appVersion: {
 		id: 'app.settings.app-version',
-		defaultMessage: 'Modrinth App {version}',
+		defaultMessage: 'TrollLauncher {version}',
 	},
 	macos: {
 		id: 'app.settings.operating-system.macos',
@@ -373,7 +365,7 @@ const messages = defineMessages({
 						}"
 						@click="devModeCount"
 					>
-						<ModrinthIcon aria-hidden="true" class="w-6 h-6" />
+						<TrollMark class="w-6 h-6" />
 					</button>
 					<div v-if="appInfo" class="max-w-[200px]">
 						<p class="m-0">

@@ -17,24 +17,31 @@
 				<RouterLink
 					v-for="(link, index) in filteredLinks"
 					v-show="link.shown ?? true"
+					v-slot="{ href, navigate }"
 					:key="link.href"
-					ref="tabLinkElements"
 					:replace="replace"
 					:to="query ? (link.href ? `?${query}=${link.href}` : '?') : link.href"
-					class="button-animation z-[1] flex flex-row items-center gap-2 px-4 py-2 focus:rounded-full"
-					:class="getSSRFallbackClasses(index)"
-					@mouseenter="link.onHover?.()"
-					@focus="link.onHover?.()"
+					custom
 				>
-					<component
-						:is="link.icon"
-						v-if="link.icon"
-						class="tab-color hidden sm:block size-5"
-						:class="getIconClasses(index)"
-					/>
-					<span class="tab-color text-nowrap" :class="getLabelClasses(index)">
-						{{ link.label }}
-					</span>
+					<a
+						ref="tabLinkElements"
+						:href="href"
+						class="button-animation z-[1] flex flex-row items-center gap-2 px-4 py-2 focus:rounded-full"
+						:class="getSSRFallbackClasses(index)"
+						@mouseenter="link.onHover?.()"
+						@focus="link.onHover?.()"
+						@click="onTabClick($event, index, navigate)"
+					>
+						<component
+							:is="link.icon"
+							v-if="link.icon"
+							class="tab-color hidden sm:block size-5"
+							:class="getIconClasses(index)"
+						/>
+						<span class="tab-color text-nowrap" :class="getLabelClasses(index)">
+							{{ link.label }}
+						</span>
+					</a>
 				</RouterLink>
 			</template>
 
@@ -62,14 +69,14 @@
 
 			<div
 				v-if="sliderReady && currentActiveIndex !== -1"
-				class="pointer-events-none absolute rounded-full"
-				:class="[
-					subpageSelected ? 'bg-button-bg' : 'bg-button-bgSelected',
-					{ 'navtabs-transition': transitionsEnabled },
-				]"
-				:style="sliderStyle"
+				class="navtabs-slider pointer-events-none absolute left-0 top-0"
+				:class="{ 'is-subpage': subpageSelected }"
 				aria-hidden="true"
-			/>
+			>
+				<span ref="sliderStart" class="navtabs-slider-cap" />
+				<span ref="sliderMiddle" class="navtabs-slider-middle" />
+				<span ref="sliderEnd" class="navtabs-slider-cap" />
+			</div>
 		</nav>
 	</div>
 </template>
@@ -100,8 +107,11 @@ const props = withDefaults(
 		mode?: 'navigation' | 'local'
 		activeIndex?: number
 		pageNav?: boolean
+		/** Delays the route change after a click so the slide is not stalled by the new page rendering. */
+		navigationDelay?: number
 	}>(),
 	{
+		navigationDelay: 0,
 		mode: 'navigation',
 		query: undefined,
 		activeIndex: undefined,
@@ -117,33 +127,17 @@ const emit = defineEmits<{
 const scrollContainer = ref<HTMLElement | null>(null)
 const tabLinkElements = ref<HTMLElement[]>()
 
-const sliderLeft = ref(0)
-const sliderTop = ref(0)
-const sliderRight = ref(0)
-const sliderBottom = ref(0)
+const sliderStart = ref<HTMLElement | null>(null)
+const sliderMiddle = ref<HTMLElement | null>(null)
+const sliderEnd = ref<HTMLElement | null>(null)
 
 const currentActiveIndex = ref(-1)
 const subpageSelected = ref(false)
 
 const sliderReady = ref(false)
-const transitionsEnabled = ref(false)
 const colorChangeDelayed = ref(false)
 
-const sliderDelays = ref({ left: '0ms', top: '0ms', right: '0ms', bottom: '0ms' })
-
 const filteredLinks = computed(() => props.links.filter((link) => link.shown ?? true))
-
-const sliderStyle = computed(() => ({
-	left: `${sliderLeft.value}px`,
-	top: `${sliderTop.value}px`,
-	right: `${sliderRight.value}px`,
-	bottom: `${sliderBottom.value}px`,
-}))
-
-const leftDelay = computed(() => sliderDelays.value.left)
-const rightDelay = computed(() => sliderDelays.value.right)
-const topDelay = computed(() => sliderDelays.value.top)
-const bottomDelay = computed(() => sliderDelays.value.bottom)
 
 const isActiveAndNotSubpage = computed(
 	() => (index: number) => currentActiveIndex.value === index && !subpageSelected.value,
@@ -226,87 +220,175 @@ function getTabElement(index: number): HTMLElement | null {
 	return element
 }
 
-function getSliderPosition() {
+type SliderRect = { x: number; y: number; width: number; height: number }
+
+const SLIDE_DURATION = 320
+const SLIDE_FRAMES = 32
+
+let sliderRect: SliderRect | null = null
+let slide: { from: SliderRect; to: SliderRect; startedAt: number } | null = null
+
+function getSliderPosition(): SliderRect | null {
 	const el = getTabElement(currentActiveIndex.value)
-	const parent = scrollContainer.value
-	if (!el || !parent) return null
+	if (!el || !scrollContainer.value) return null
 
+	return { x: el.offsetLeft, y: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight }
+}
+
+/** Fast ease for the edge leading the motion. */
+function leadEase(t: number) {
+	return 1 - (1 - t) ** 4
+}
+
+/** Same curve, slightly delayed, for the trailing edge, giving a liquid stretch. */
+function trailEase(t: number) {
+	return leadEase(Math.min(1, Math.max(0, (t - 0.1) / 0.9)))
+}
+
+function interpolate(from: SliderRect, to: SliderRect, t: number): SliderRect {
+	const movingRight = to.x > from.x
+	const left = from.x + (to.x - from.x) * (movingRight ? trailEase(t) : leadEase(t))
+	const fromRight = from.x + from.width
+	const toRight = to.x + to.width
+	const right = fromRight + (toRight - fromRight) * (movingRight ? leadEase(t) : trailEase(t))
 	return {
-		left: el.offsetLeft,
-		top: el.offsetTop,
-		right: parent.clientWidth - el.offsetLeft - el.offsetWidth,
-		bottom: parent.clientHeight - el.offsetTop - el.offsetHeight,
+		x: left,
+		y: from.y + (to.y - from.y) * leadEase(t),
+		width: Math.max(right - left, 0),
+		height: from.height + (to.height - from.height) * leadEase(t),
 	}
 }
 
-function applySliderPosition(newPosition: {
-	left: number
-	top: number
-	right: number
-	bottom: number
-}) {
-	sliderLeft.value = newPosition.left
-	sliderTop.value = newPosition.top
-	sliderRight.value = newPosition.right
-	sliderBottom.value = newPosition.bottom
+function sliderTransforms(rect: SliderRect) {
+	const cap = rect.height
+	const middle = Math.max(rect.width - cap, 0)
+	return {
+		start: `translate(${rect.x}px, ${rect.y}px)`,
+		middle: `translate(${rect.x + cap / 2}px, ${rect.y}px) scaleX(${middle})`,
+		end: `translate(${rect.x + rect.width - cap}px, ${rect.y}px)`,
+	}
 }
 
-function animateSliderTo(newPosition: {
-	left: number
-	top: number
-	right: number
-	bottom: number
-}) {
-	const STAGGER_DELAY = '175ms'
+function sliderParts() {
+	const parts = [sliderStart.value, sliderMiddle.value, sliderEnd.value]
+	return parts.every(Boolean) ? (parts as HTMLElement[]) : null
+}
 
-	sliderDelays.value = {
-		left: newPosition.left < sliderLeft.value ? '0ms' : STAGGER_DELAY,
-		right: newPosition.left < sliderLeft.value ? STAGGER_DELAY : '0ms',
-		top: newPosition.top < sliderTop.value ? '0ms' : STAGGER_DELAY,
-		bottom: newPosition.top < sliderTop.value ? STAGGER_DELAY : '0ms',
+function setSliderInstantly(rect: SliderRect) {
+	const parts = sliderParts()
+	if (!parts) return
+	const transforms = sliderTransforms(rect)
+	const [start, middle, end] = parts
+	for (const part of parts) {
+		for (const animation of part.getAnimations()) animation.cancel()
+		part.style.height = `${rect.height}px`
+	}
+	start.style.width = `${rect.height}px`
+	end.style.width = `${rect.height}px`
+	start.style.transform = transforms.start
+	middle.style.transform = transforms.middle
+	end.style.transform = transforms.end
+	sliderRect = rect
+	slide = null
+}
+
+/** Where the slider visually is right now, including mid-animation. */
+function currentSliderRect(): SliderRect | null {
+	if (!slide) return sliderRect
+	const t = Math.min(1, (performance.now() - slide.startedAt) / SLIDE_DURATION)
+	return interpolate(slide.from, slide.to, t)
+}
+
+function slideSliderTo(to: SliderRect) {
+	const parts = sliderParts()
+	const from = currentSliderRect()
+	if (!parts || !from || from.height !== to.height) {
+		setSliderInstantly(to)
+		return
 	}
 
-	applySliderPosition(newPosition)
+	const frames = Array.from({ length: SLIDE_FRAMES + 1 }, (_, i) =>
+		sliderTransforms(interpolate(from, to, i / SLIDE_FRAMES)),
+	)
+	const final = sliderTransforms(to)
+	const [start, , end] = parts
+	const keys = ['start', 'middle', 'end'] as const
+
+	parts.forEach((part, i) => {
+		for (const animation of part.getAnimations()) animation.cancel()
+		part.style.transform = final[keys[i]]
+		part.animate(
+			frames.map((frame) => ({ transform: frame[keys[i]] })),
+			{ duration: SLIDE_DURATION, easing: 'linear' },
+		)
+	})
+	start.style.width = end.style.width = `${to.height}px`
+
+	sliderRect = to
+	slide = { from, to, startedAt: performance.now() }
+	window.setTimeout(() => {
+		if (slide?.to === to) slide = null
+	}, SLIDE_DURATION)
 }
 
 function positionSlider(animate = true) {
 	const newPosition = getSliderPosition()
-	if (!newPosition) {
-		return
-	}
+	if (!newPosition) return
 
 	if (!sliderReady.value) {
-		applySliderPosition(newPosition)
 		sliderReady.value = true
-		nextTick(() => {
-			requestAnimationFrame(() => {
-				transitionsEnabled.value = true
-			})
-		})
+		nextTick(() => setSliderInstantly(newPosition))
 		return
 	}
 
-	if (!animate) {
-		transitionsEnabled.value = false
-		applySliderPosition(newPosition)
-		requestAnimationFrame(() => {
-			transitionsEnabled.value = true
-		})
-		return
-	}
+	const unchanged =
+		sliderRect &&
+		sliderRect.x === newPosition.x &&
+		sliderRect.y === newPosition.y &&
+		sliderRect.width === newPosition.width &&
+		sliderRect.height === newPosition.height
+	if (unchanged) return
 
-	animateSliderTo(newPosition)
+	if (animate) slideSliderTo(newPosition)
+	else setSliderInstantly(newPosition)
 }
 
 function resetSliderPosition() {
 	if (!sliderReady.value || currentActiveIndex.value === -1) {
 		return
 	}
-	positionSlider(false)
+	positionSlider(slide !== null)
+}
+
+let pendingNavigation: number | undefined
+
+/** Starts the slide on click instead of waiting for the route to resolve. */
+function onTabClick(event: MouseEvent, index: number, navigate: (event?: MouseEvent) => unknown) {
+	const modified = event.metaKey || event.altKey || event.ctrlKey || event.shiftKey
+	if (modified || event.button !== 0) return
+
+	event.preventDefault()
+	window.clearTimeout(pendingNavigation)
+	if (index !== currentActiveIndex.value) {
+		colorChangeDelayed.value = false
+		currentActiveIndex.value = index
+		subpageSelected.value = false
+		positionSlider()
+	}
+
+	if (props.navigationDelay > 0) {
+		pendingNavigation = window.setTimeout(() => {
+			pendingNavigation = undefined
+			navigate()
+		}, props.navigationDelay)
+	} else {
+		navigate()
+	}
 }
 
 async function updateActiveTab() {
 	await nextTick()
+	if (pendingNavigation !== undefined) return
 	const { index, isSubpage } = computeActiveIndex()
 	colorChangeDelayed.value = sliderReady.value && index !== currentActiveIndex.value
 	currentActiveIndex.value = index
@@ -333,6 +415,7 @@ onMounted(() => {
 
 onUnmounted(() => {
 	resizeObserver?.disconnect()
+	window.clearTimeout(pendingNavigation)
 })
 
 watch(
@@ -364,12 +447,35 @@ watch(
 </script>
 
 <style scoped>
-.navtabs-transition {
-	transition:
-		left 80ms cubic-bezier(0.4, 0, 0.2, 1) v-bind(leftDelay),
-		right 80ms cubic-bezier(0.4, 0, 0.2, 1) v-bind(rightDelay),
-		top 80ms cubic-bezier(0.4, 0, 0.2, 1) v-bind(topDelay),
-		bottom 80ms cubic-bezier(0.4, 0, 0.2, 1) v-bind(bottomDelay);
+.navtabs-slider {
+	--navtabs-slider-bg: color-mix(in srgb, var(--color-brand) 25%, var(--surface-3));
+}
+
+:global(.light-mode) .navtabs-slider {
+	--navtabs-slider-bg: var(--color-button-bg-selected);
+}
+
+.navtabs-slider.is-subpage {
+	--navtabs-slider-bg: var(--color-button-bg);
+}
+
+.navtabs-slider-cap,
+.navtabs-slider-middle {
+	position: absolute;
+	left: 0;
+	top: 0;
+	background: var(--navtabs-slider-bg);
+	will-change: transform;
+	transition: background-color 150ms ease;
+}
+
+.navtabs-slider-cap {
+	border-radius: 9999px;
+}
+
+.navtabs-slider-middle {
+	width: 1px;
+	transform-origin: left center;
 }
 
 .tab-color {

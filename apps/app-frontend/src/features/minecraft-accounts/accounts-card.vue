@@ -9,6 +9,10 @@
 			<SpinnerIcon v-else class="animate-spin" />
 			{{ formatMessage(messages.signInToMinecraft) }}
 		</Button>
+		<Button :disabled="loginDisabled" @click="elybyModal?.show()">
+			<LogInIcon />
+			Войти через Ely.by
+		</Button>
 	</div>
 	<Accordion
 		v-else
@@ -30,7 +34,11 @@
 					<span class="truncate w-full text-left">{{
 						selectedAccount ? selectedAccount.profile.name : formatMessage(messages.selectAccount)
 					}}</span>
-					<span class="text-secondary text-xs">{{ formatMessage(messages.minecraftAccount) }}</span>
+					<span class="text-secondary text-xs">{{
+						selectedAccount?.provider === 'elyby'
+							? 'Аккаунт Ely.by'
+							: formatMessage(messages.minecraftAccount)
+					}}</span>
 				</div>
 			</div>
 		</template>
@@ -57,6 +65,12 @@
 						>
 							{{ account.profile.name }}
 						</p>
+						<span
+							v-if="account.provider === 'elyby'"
+							class="shrink-0 rounded-full bg-surface-4 px-1.5 py-0.5 text-[10px] font-bold text-secondary"
+						>
+							Ely.by
+						</span>
 					</button>
 					<IconButton
 						v-tooltip="formatMessage(messages.removeAccount)"
@@ -80,9 +94,19 @@
 					<PlusIcon />
 					{{ formatMessage(messages.addAccount) }}
 				</Button>
+				<Button
+					v-if="accounts.length > 0"
+					class="w-full !bg-button-bg !text-primary ![box-shadow:var(--shadow-button)]"
+					:disabled="loginDisabled"
+					@click="elybyModal?.show()"
+				>
+					<PlusIcon />
+					Добавить аккаунт Ely.by
+				</Button>
 			</div>
 		</div>
 	</Accordion>
+	<ElybyLoginModal ref="elybyModal" @logged-in="onElybyLogin" />
 </template>
 
 <script setup lang="ts">
@@ -116,9 +140,11 @@ import {
 	set_default_user,
 	users,
 } from '@/helpers/auth'
-import { getPlayerHeadUrl } from '@/helpers/rendering/player-head'
+import { generatePlayerHeadBlob, getPlayerHeadUrl } from '@/helpers/rendering/player-head'
 import type { Skin } from '@/helpers/skins'
-import { get_available_skins } from '@/helpers/skins'
+import { get_available_skins, normalize_skin_texture } from '@/helpers/skins'
+
+import ElybyLoginModal from './elyby-login-modal.vue'
 
 const { formatMessage } = useVIntl()
 const { handleError } = injectNotificationManager()
@@ -128,10 +154,38 @@ const emit = defineEmits<{
 }>()
 
 type MinecraftCredential = {
+	provider?: 'microsoft' | 'elyby'
 	profile: {
 		id: string
 		name: string
+		skins?: Array<{ url: string }>
 	}
+}
+
+const elybyModal = ref<InstanceType<typeof ElybyLoginModal>>()
+/** Rendered heads for Ely.by accounts, keyed by profile id. */
+const elybyHeads = ref<Record<string, string>>({})
+
+async function renderElybyHeads() {
+	for (const account of accounts.value) {
+		const skinUrl = account.profile.skins?.[0]?.url
+		if (account.provider !== 'elyby' || !skinUrl || elybyHeads.value[account.profile.id]) continue
+		try {
+			const texture = await normalize_skin_texture(skinUrl)
+			const blob = await generatePlayerHeadBlob(
+				URL.createObjectURL(new Blob([texture as BlobPart], { type: 'image/png' })),
+				64,
+			)
+			elybyHeads.value = { ...elybyHeads.value, [account.profile.id]: URL.createObjectURL(blob) }
+		} catch (error) {
+			console.warn('Failed to render Ely.by head:', error)
+		}
+	}
+}
+
+async function onElybyLogin(account: MinecraftCredential) {
+	await setAccount(account)
+	trackEvent('AccountLogIn')
 }
 
 const accounts: Ref<MinecraftCredential[]> = ref([])
@@ -161,6 +215,7 @@ async function refreshValues() {
 	const userList = await users().catch(handleError)
 	accounts.value = Array.isArray(userList) ? [...userList] : []
 	accounts.value.sort((a, b) => (a.profile?.name ?? '').localeCompare(b.profile?.name ?? ''))
+	void renderElybyHeads()
 
 	try {
 		const skins = await get_available_skins()
@@ -209,6 +264,12 @@ const avatarUrl = computed(() => {
 		}
 		return `https://mc-heads.net/avatar/${equippedSkin.value.texture_key}/128`
 	}
+	if (selectedAccount.value?.provider === 'elyby') {
+		return (
+			elybyHeads.value[selectedAccount.value.profile.id] ??
+			'https://launcher-files.modrinth.com/assets/steve_head.png'
+		)
+	}
 	if (selectedAccount.value?.profile?.id) {
 		return `https://mc-heads.net/avatar/${selectedAccount.value.profile.id}/128`
 	}
@@ -216,6 +277,12 @@ const avatarUrl = computed(() => {
 })
 
 function getAccountAvatarUrl(account: MinecraftCredential) {
+	if (account.provider === 'elyby') {
+		return (
+			elybyHeads.value[account.profile.id] ??
+			'https://launcher-files.modrinth.com/assets/steve_head.png'
+		)
+	}
 	if (
 		account.profile.id === selectedAccount.value?.profile?.id &&
 		equippedSkin.value?.texture_key

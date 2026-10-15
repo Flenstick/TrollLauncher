@@ -207,7 +207,7 @@
     "message": "Startpagina en inhoud"
   },
   "app.behavior-settings.refocus-on-game-close.description": {
-    "message": "Breng de Modrinth App naar de voorgrond als Minecraft sluit."
+    "message": "Breng de TrollLauncher naar de voorgrond als Minecraft sluit."
   },
   "app.behavior-settings.refocus-on-game-close.title": {
     "message": "Opnieuw focussen bij sluiten van Minecraft"
@@ -495,7 +495,7 @@
     "message": "Bekijk instantie"
   },
   "app.hosting.update-required.description": {
-    "message": "Je moet bijwerken om Modrinth Hosting te gebruiken via de Modrinth App"
+    "message": "Je moet bijwerken om Modrinth Hosting te gebruiken via de TrollLauncher"
   },
   "app.hosting.update-required.download": {
     "message": "Update aan het downloaden"
@@ -3087,13 +3087,13 @@
     "message": "Pakketten konden niet worden geladen. Probeer deze te herladen."
   },
   "app.update-popup.body.download-complete": {
-    "message": "Modrinth App v{version} is klaar met downloaden. Herlaad om nu te updaten, of automatisch wanneer je de Modrinth App afsluit."
+    "message": "TrollLauncher v{version} is klaar met downloaden. Herlaad om nu te updaten, of automatisch wanneer je de TrollLauncher afsluit."
   },
   "app.update-popup.body.linux": {
     "message": "De Modrinth-app v{version} is beschikbaar. Gebruik je pakketbeheerder om bij te werken en zo de nieuwste functies en verbeteringen te krijgen!"
   },
   "app.update-popup.body.metered": {
-    "message": "Modrinth App v{version} is nu beschikbaar! Omdat je nu op een netwerk met datalimiet zit, is de download niet automatisch gestart."
+    "message": "TrollLauncher v{version} is nu beschikbaar! Omdat je nu op een netwerk met datalimiet zit, is de download niet automatisch gestart."
   },
   "app.update-popup.changelog": {
     "message": "Wijzigingen"

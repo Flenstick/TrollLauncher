@@ -2,7 +2,7 @@ import type { App } from 'vue'
 import type { Router } from 'vue-router'
 
 export function setupErrorReporting(app: App, router: Router): void {
-	if (!import.meta.env.PROD) return
+	if (!import.meta.env.PROD || import.meta.env.VITE_ENABLE_ERROR_REPORTING !== 'true') return
 
 	const previousHandler = app.config.errorHandler
 	let pending: Promise<typeof import('@sentry/vue')> | undefined

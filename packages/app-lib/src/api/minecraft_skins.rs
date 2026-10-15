@@ -263,6 +263,18 @@ pub enum UrlOrBlob {
 /// Gets the capes for the selected Minecraft profile.
 /// Only one cape can be equipped.
 #[tracing::instrument]
+/// Ely.by skins are managed on ely.by, the Mojang skin API does not accept their tokens.
+fn ensure_mojang_skins(credentials: &Credentials) -> crate::Result<()> {
+    if credentials.provider == crate::state::AccountProvider::ElyBy {
+        return Err(ErrorKind::OtherError(
+            "Скин аккаунта Ely.by меняется на сайте ely.by (раздел «Скин» в профиле)."
+                .to_owned(),
+        )
+        .into());
+    }
+    Ok(())
+}
+
 pub async fn get_available_capes() -> crate::Result<Vec<Cape>> {
     let state = State::get().await?;
 
@@ -539,6 +551,7 @@ pub async fn add_and_equip_custom_skin(
     let selected_credentials = Credentials::get_default_credential(&state.pool)
         .await?
         .ok_or(ErrorKind::NoCredentialsError)?;
+    ensure_mojang_skins(&selected_credentials)?;
     let cape_id = cape.map(|cape| cape.id);
     let local_texture_key = local_skin_texture_key(&texture_blob);
 
@@ -696,6 +709,7 @@ pub async fn equip_skin(skin: Skin) -> crate::Result<()> {
     let selected_credentials = Credentials::get_default_credential(&state.pool)
         .await?
         .ok_or(ErrorKind::NoCredentialsError)?;
+    ensure_mojang_skins(&selected_credentials)?;
 
     set_pending_skin_change(PendingSkinChange::Equip {
         selected_credentials,
@@ -980,6 +994,7 @@ pub async fn unequip_skin() -> crate::Result<()> {
     let selected_credentials = Credentials::get_default_credential(&state.pool)
         .await?
         .ok_or(ErrorKind::NoCredentialsError)?;
+    ensure_mojang_skins(&selected_credentials)?;
 
     set_pending_skin_change(PendingSkinChange::Unequip {
         selected_credentials,

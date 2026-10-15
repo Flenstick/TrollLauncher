@@ -49,7 +49,7 @@ let activated = false
 let debug = false
 let explicitlyOptedIn = false
 const events: Array<{ name: AnalyticsEvent; properties: Record<string, unknown> | undefined }> = []
-const allowed = import.meta.env.PROD || import.meta.env.VITE_ENABLE_ANALYTICS === 'true'
+const allowed = false
 
 function removeActivationListeners() {
 	window.removeEventListener('pointerdown', activate)

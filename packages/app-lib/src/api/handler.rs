@@ -117,7 +117,10 @@ pub async fn parse_command(
 
     // modrinth://some-command
     // This occurs when following a web redirect link
-    if let Some(sublink) = command_string.strip_prefix("modrinth://") {
+    if let Some(sublink) = command_string
+        .strip_prefix("trolllauncher://")
+        .or_else(|| command_string.strip_prefix("modrinth://"))
+    {
         Ok(handle_url(sublink).await?)
     } else {
         // We assume anything else is a filepath to an .mrpack file

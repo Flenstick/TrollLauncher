@@ -47,6 +47,30 @@ pub async fn finish_login(
     Ok(credentials)
 }
 
+/// Signs in with an Ely.by account. Fails with
+/// [`TWO_FACTOR_REQUIRED`](crate::state::elyby::TWO_FACTOR_REQUIRED) when a 2FA code is needed.
+#[tracing::instrument(skip(password, totp))]
+pub async fn elyby_login(
+    username: &str,
+    password: &str,
+    totp: Option<&str>,
+) -> crate::Result<Credentials> {
+    let state = State::get().await?;
+    let credentials =
+        crate::state::elyby::login(username, password, totp, &state.pool)
+            .await?;
+
+    if let Err(error) =
+        crate::onboarding_checklist::mark_logged_into_minecraft().await
+    {
+        tracing::warn!(
+            "Failed to mark Minecraft login in onboarding checklist: {error}"
+        );
+    }
+
+    Ok(credentials)
+}
+
 #[tracing::instrument]
 pub async fn get_default_user() -> crate::Result<Option<uuid::Uuid>> {
     let state = State::get().await?;
@@ -79,6 +103,10 @@ pub async fn remove_user(uuid: uuid::Uuid) -> crate::Result<()> {
     let users = Credentials::get_all(&state.pool).await?;
 
     if let Some((uuid, user)) = users.remove(&uuid) {
+        if user.provider == crate::state::AccountProvider::ElyBy {
+            crate::state::elyby::invalidate(&user).await;
+            crate::state::elyby::forget_account(uuid, &state.pool).await?;
+        }
         Credentials::remove(uuid, &state.pool).await?;
 
         if user.active

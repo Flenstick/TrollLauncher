@@ -39,7 +39,7 @@ const messages = defineMessages({
 	surveyBody: {
 		id: 'app.survey.body',
 		defaultMessage:
-			'Would you mind answering a few questions about your experience with Modrinth App?',
+			'Would you mind answering a few questions about your experience with TrollLauncher?',
 	},
 	surveyFooter: {
 		id: 'app.survey.footer',

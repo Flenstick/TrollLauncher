@@ -88,7 +88,7 @@ const messages = defineMessages({
 	<div
 		class="app-sidebar mt-px relative flex h-[calc(100vh-var(--top-bar-height))] w-[300px] shrink-0 flex-col overflow-visible border-0 border-l-[1px] border-solid border-[--brand-gradient-border] before:pointer-events-none before:absolute before:inset-y-0 before:-left-8 before:w-8 before:content-['']"
 		:class="{
-			'before:shadow-[-15px_0_15px_-15px_rgba(0,0,0,0.1)_inset]': appTheme.advancedRendering,
+			'before:bg-[linear-gradient(to_left,rgba(0,0,0,0.1),transparent_50%)]': appTheme.advancedRendering,
 		}"
 	>
 		<div class="relative flex min-h-0 grow shrink flex-col">

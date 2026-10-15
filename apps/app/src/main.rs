@@ -16,6 +16,11 @@ mod api;
 #[cfg(target_os = "macos")]
 mod macos;
 
+#[cfg(target_os = "linux")]
+mod vblank_shim;
+
+mod tray;
+
 #[cfg(feature = "updater")]
 mod updater_impl;
 #[cfg(not(feature = "updater"))]
@@ -51,6 +56,12 @@ async fn initialize_state(
 #[tracing::instrument(skip_all)]
 #[tauri::command]
 fn show_window(app: tauri::AppHandle) {
+    if tray::START_HIDDEN.swap(false, Ordering::Relaxed) {
+        tracing::info!(
+            "Started by autostart in minimized mode, keeping window hidden"
+        );
+        return;
+    }
     let win = app.get_window("main").unwrap();
     if let Err(e) = win.show() {
         DialogBuilder::message()
@@ -115,6 +126,15 @@ async fn set_restart_after_pending_update(
 // if Tauri app is called with arguments, then those arguments will be treated as commands
 // ie: deep links or filepaths for .mrpacks
 fn main() {
+    // WebKitGTK's DMABUF renderer caps repaints at 60 FPS on NVIDIA (and can
+    // paint a blank window there); the fallback renderer, paced by
+    // vblank_shim, follows the monitor's real refresh rate.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        // SAFETY: no other threads exist yet.
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+    }
+
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -147,7 +167,7 @@ fn main() {
 
     let _log_guard = theseus::start_logger(&tauri_context.config().identifier);
 
-    tracing::info!("Initialized tracing subscriber. Loading Modrinth App!");
+    tracing::info!("Initialized tracing subscriber. Loading TrollLauncher!");
 
     let mut builder = tauri::Builder::default();
 
@@ -175,6 +195,9 @@ fn main() {
 
     builder = builder
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if tray::handle_cli_args(app, &args) {
+                return;
+            }
             if let Some(payload) = args.get(1) {
                 tracing::info!("Handling command-line deep link");
                 let payload = payload.clone();
@@ -183,10 +206,14 @@ fn main() {
                 ));
             }
 
-            if let Some(win) = app.get_window("main") {
-                let _ = win.set_focus();
-            }
+            tray::show_main_window(app);
         }))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![tray::AUTOSTART_ARG]),
+        ))
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tray::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
@@ -294,6 +321,10 @@ fn main() {
                 ));
             });
 
+            if let Err(e) = tray::setup(app.handle()) {
+                tracing::warn!("Failed to create tray icon: {e}");
+            }
+
             #[cfg(not(target_os = "linux"))]
             if let Some(window) = app.get_window("main")
                 && let Err(e) = window.set_shadow(true)
@@ -328,6 +359,7 @@ fn main() {
         .plugin(api::friends::init())
         .plugin(api::worlds::init())
         .manage(PendingUpdateData::default())
+        .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
             initialize_state,
             is_dev,
@@ -468,7 +500,7 @@ fn main() {
                     DialogBuilder::message()
                         .set_level(MessageLevel::Error)
                         .set_title("Initialization error")
-                        .set_text("Your Microsoft Edge WebView2 installation is corrupt.\n\nMicrosoft Edge WebView2 is required to run Modrinth App.\n\nLearn how to repair it at https://support.modrinth.com/en/articles/8797765-corrupted-microsoft-edge-webview2-installation")
+                        .set_text("Your Microsoft Edge WebView2 installation is corrupt.\n\nMicrosoft Edge WebView2 is required to run TrollLauncher.\n\nLearn how to repair it at https://support.modrinth.com/en/articles/8797765-corrupted-microsoft-edge-webview2-installation")
                         .alert()
                         .show()
                         .unwrap();

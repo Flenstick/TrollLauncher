@@ -377,6 +377,60 @@
   "console.actions.share": {
     "defaultMessage": "Share"
   },
+  "console.delete.body": {
+    "defaultMessage": "Deleting this log file cannot be undone. Are you sure you want to continue?"
+  },
+  "console.delete.cancel": {
+    "defaultMessage": "Cancel"
+  },
+  "console.delete.confirm": {
+    "defaultMessage": "Delete"
+  },
+  "console.delete.failed": {
+    "defaultMessage": "Failed to delete log file"
+  },
+  "console.delete.header": {
+    "defaultMessage": "Delete log file"
+  },
+  "console.delete.irreversible": {
+    "defaultMessage": "This is irreversible"
+  },
+  "console.error.unknown": {
+    "defaultMessage": "Unknown error."
+  },
+  "console.filter.all": {
+    "defaultMessage": "All"
+  },
+  "console.filter.debug": {
+    "defaultMessage": "Debug"
+  },
+  "console.filter.error": {
+    "defaultMessage": "Error"
+  },
+  "console.filter.info": {
+    "defaultMessage": "Info"
+  },
+  "console.filter.trace": {
+    "defaultMessage": "Trace"
+  },
+  "console.filter.warn": {
+    "defaultMessage": "Warn"
+  },
+  "console.input.disabled": {
+    "defaultMessage": "Command input disabled"
+  },
+  "console.input.server-not-running": {
+    "defaultMessage": "Server is not running"
+  },
+  "console.search.placeholder": {
+    "defaultMessage": "Search logs"
+  },
+  "console.share.failed": {
+    "defaultMessage": "Failed to share logs"
+  },
+  "console.share.header": {
+    "defaultMessage": "Share Logs"
+  },
   "content-type.content.lowercase": {
     "defaultMessage": "content"
   },
@@ -3060,16 +3114,16 @@
     "defaultMessage": "Keep files updated when the server changes"
   },
   "modal.open-in-app.get-app": {
-    "defaultMessage": "Get Modrinth App"
+    "defaultMessage": "Get TrollLauncher"
   },
   "modal.open-in-app.opening-automatically": {
-    "defaultMessage": "The Modrinth App will open automatically..."
+    "defaultMessage": "The TrollLauncher will open automatically..."
   },
   "modal.open-in-app.title": {
-    "defaultMessage": "Opening Modrinth App"
+    "defaultMessage": "Opening TrollLauncher"
   },
   "modal.open-in-app.why-use": {
-    "defaultMessage": "Why use the Modrinth App"
+    "defaultMessage": "Why use the TrollLauncher"
   },
   "notification.error.title": {
     "defaultMessage": "An error occurred"
@@ -5460,7 +5514,7 @@
     "defaultMessage": "New server"
   },
   "servers.list-empty.no-servers-description": {
-    "defaultMessage": "Install mods, invite friends, and play together all from the Modrinth App."
+    "defaultMessage": "Install mods, invite friends, and play together all from the TrollLauncher."
   },
   "servers.list-empty.one-click-mod-installs-description": {
     "defaultMessage": "Pick your favorite mods and we handle the rest."
@@ -5469,7 +5523,7 @@
     "defaultMessage": "One-click mod installs"
   },
   "servers.list-empty.play-with-friends-description": {
-    "defaultMessage": "Invite friends to play your server with one-click play from the Modrinth App."
+    "defaultMessage": "Invite friends to play your server with one-click play from the TrollLauncher."
   },
   "servers.list-empty.play-with-friends-title": {
     "defaultMessage": "Play with friends"
@@ -6102,7 +6156,7 @@
     "defaultMessage": "Dark"
   },
   "settings.display.theme.description": {
-    "defaultMessage": "Select your preferred color theme across Modrinth."
+    "defaultMessage": "Select your preferred color theme for TrollLauncher."
   },
   "settings.display.theme.light": {
     "defaultMessage": "Light"
@@ -6147,7 +6201,7 @@
     "defaultMessage": "Search results"
   },
   "settings.language.coverage.app-tooltip": {
-    "defaultMessage": "About {percentage}% of the Modrinth App is available in this language."
+    "defaultMessage": "About {percentage}% of the TrollLauncher is available in this language."
   },
   "settings.language.coverage.label": {
     "defaultMessage": "{percentage}% supported"
@@ -6856,6 +6910,18 @@
   },
   "tag.loader.waterfall": {
     "defaultMessage": "Waterfall"
+  },
+  "terminal.empty.instance.line-1": {
+    "defaultMessage": "Start your instance in the top right to start"
+  },
+  "terminal.empty.instance.line-2": {
+    "defaultMessage": "receiving live logs!"
+  },
+  "terminal.empty.server.line-1": {
+    "defaultMessage": "Welcome to your server!"
+  },
+  "terminal.empty.server.line-2": {
+    "defaultMessage": "Press the green start button to start your server!"
   },
   "time-frame-picker.apply": {
     "defaultMessage": "Apply"

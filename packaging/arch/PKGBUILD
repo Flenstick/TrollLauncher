@@ -1,0 +1,26 @@
+# Maintainer: Flenstick <https://github.com/Flenstick>
+pkgname=trolllauncher-bin
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Minecraft launcher with modpacks, mods, themes and Ely.by login'
+arch=('x86_64')
+url='https://github.com/Flenstick/TrollLauncher'
+license=('GPL-3.0-only')
+depends=('webkit2gtk-4.1' 'gtk3' 'libsoup3' 'libayatana-appindicator' 'dbus' 'openssl' 'hicolor-icon-theme')
+optdepends=('xdg-utils: opening links and folders')
+provides=('trolllauncher')
+conflicts=('trolllauncher')
+options=('!strip' '!debug')
+source=("$url/releases/download/v$pkgver/trolllauncher-$pkgver-x86_64.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+	cd "trolllauncher-$pkgver-x86_64"
+	install -Dm755 trolllauncher "$pkgdir/usr/bin/trolllauncher"
+	install -Dm644 trolllauncher.desktop "$pkgdir/usr/share/applications/trolllauncher.desktop"
+	install -Dm644 icons/trolllauncher.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/trolllauncher.svg"
+	for size in 32 64 128 256 512; do
+		install -Dm644 "icons/$size.png" "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/trolllauncher.png"
+	done
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

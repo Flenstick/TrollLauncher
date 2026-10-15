@@ -175,6 +175,7 @@ pub async fn login_finish(
         expires: oauth_token.date
             + Duration::seconds(oauth_token.value.expires_in as i64),
         active: true,
+        provider: super::AccountProvider::Microsoft,
     };
 
     // During login, we need to fetch the online profile at least once to get the
@@ -210,6 +211,8 @@ pub struct Credentials {
     pub refresh_token: String,
     pub expires: DateTime<Utc>,
     pub active: bool,
+    #[serde(default)]
+    pub provider: super::AccountProvider,
 }
 
 /// An entry in the player profile cache, keyed by player UUID.
@@ -275,6 +278,12 @@ impl Credentials {
         // other operations that depend on a fresh token 5 minutes to complete
         // from now, and deal with some classes of clock skew
         if self.expires > Utc::now() + Duration::minutes(5) {
+            return Ok(());
+        }
+
+        if self.provider == super::AccountProvider::ElyBy {
+            super::elyby::refresh(self).await?;
+            self.upsert(exec).await?;
             return Ok(());
         }
 
@@ -351,6 +360,9 @@ impl Credentials {
         &self,
         cache_intent: OnlineProfileCacheIntent,
     ) -> Option<Arc<MinecraftProfile>> {
+        if self.provider == super::AccountProvider::ElyBy {
+            return self.elyby_profile(cache_intent).await;
+        }
         let max_age = cache_intent.max_age();
         let stale_profile = {
             let mut profile_cache = PROFILE_CACHE.lock().await;
@@ -443,6 +455,42 @@ impl Credentials {
                 } else {
                     None
                 }
+            }
+        }
+    }
+
+    /// Ely.by profile with skin, cached like Mojang profiles.
+    async fn elyby_profile(
+        &self,
+        cache_intent: OnlineProfileCacheIntent,
+    ) -> Option<Arc<MinecraftProfile>> {
+        let stale = {
+            let profile_cache = PROFILE_CACHE.lock().await;
+            match profile_cache.get(&self.offline_profile.id) {
+                Some(ProfileCacheEntry::Hit(profile))
+                    if profile.is_fresh(cache_intent.max_age()) =>
+                {
+                    return Some(Arc::clone(profile));
+                }
+                Some(ProfileCacheEntry::Hit(profile)) => Some(Arc::clone(profile)),
+                _ => None,
+            }
+        };
+        match super::elyby::profile(&self.offline_profile).await {
+            Ok(profile) => {
+                let profile = Arc::new(profile);
+                PROFILE_CACHE.lock().await.insert(
+                    self.offline_profile.id,
+                    ProfileCacheEntry::Hit(Arc::clone(&profile)),
+                );
+                Some(profile)
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to fetch Ely.by profile for {}: {err}",
+                    self.offline_profile.name
+                );
+                stale
             }
         }
     }
@@ -542,7 +590,14 @@ impl Credentials {
                         .single()
                         .unwrap_or_else(Utc::now),
                     active: x.active == 1,
+                    provider: super::AccountProvider::Microsoft,
                 };
+                if super::elyby::elyby_account_ids(exec)
+                    .await?
+                    .contains(&credentials.offline_profile.id)
+                {
+                    credentials.provider = super::AccountProvider::ElyBy;
+                }
                 credentials.refresh(exec).await.ok();
                 Some(credentials)
             }
@@ -553,6 +608,7 @@ impl Credentials {
     pub async fn get_all(
         exec: impl sqlx::Executor<'_, Database = sqlx::Sqlite> + Copy,
     ) -> crate::Result<DashMap<Uuid, Self>> {
+        let elyby_ids = super::elyby::elyby_account_ids(exec).await?;
         let res = sqlx::query!(
             "
             SELECT
@@ -576,6 +632,11 @@ impl Credentials {
                     .single()
                     .unwrap_or_else(Utc::now),
                 active: x.active == 1,
+                provider: if elyby_ids.contains(&uuid) {
+                    super::AccountProvider::ElyBy
+                } else {
+                    super::AccountProvider::Microsoft
+                },
             };
 
             async move {
@@ -682,12 +743,13 @@ impl Serialize for Credentials {
                 ),
         };
 
-        let mut ser = serializer.serialize_struct("Credentials", 5)?;
+        let mut ser = serializer.serialize_struct("Credentials", 6)?;
         ser.serialize_field("profile", &*profile)?;
         ser.serialize_field("access_token", &self.access_token)?;
         ser.serialize_field("refresh_token", &self.refresh_token)?;
         ser.serialize_field("expires", &self.expires)?;
         ser.serialize_field("active", &self.active)?;
+        ser.serialize_field("provider", &self.provider)?;
         ser.end()
     }
 }
