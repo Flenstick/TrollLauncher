@@ -1,45 +1,89 @@
 <p align="center">
-  <img src=".github/media/banner.png" alt="TrollLauncher" width="640">
+	<img src=".github/media/banner.svg" alt="TrollLauncher — твои сборки, твой стиль" width="100%">
 </p>
 
 <p align="center">
-  <b>Лаунчер Minecraft со сборками, модами, темами и входом через Ely.by</b><br>
-  <sub>Форк Modrinth App с упором на настройку под себя</sub>
+	<b>Всё для Minecraft в одном лаунчере.</b><br>
+	Сборки и моды, вход через Ely.by и интерфейс, который можно настроить под себя.
 </p>
 
 <p align="center">
-  <a href="https://github.com/Flenstick/TrollLauncher/releases/latest"><img alt="Релиз" src="https://img.shields.io/github/v/release/Flenstick/TrollLauncher?style=flat-square&color=e5484d&label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7"></a>
-  <img alt="Arch Linux" src="https://img.shields.io/badge/Arch%20Linux-x86__64-1793d1?style=flat-square&logo=archlinux&logoColor=white">
-  <a href="apps/app/LICENSE"><img alt="Лицензия" src="https://img.shields.io/badge/%D0%BB%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-GPL--3.0-3a3b40?style=flat-square"></a>
+	<a href="https://github.com/Flenstick/TrollLauncher/releases/latest"><img alt="Последний релиз" src="https://img.shields.io/github/v/release/Flenstick/TrollLauncher?style=flat-square&amp;color=e5484d&amp;label=release"></a>
+	<a href="#установка"><img alt="Arch Linux x86_64" src="https://img.shields.io/badge/Arch_Linux-x86__64-1793d1?style=flat-square&amp;logo=archlinux&amp;logoColor=white"></a>
+	<a href="apps/app/LICENSE"><img alt="Лицензия лаунчера: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-72728a?style=flat-square"></a>
 </p>
 
 <p align="center">
-  <img src=".github/media/screenshot-browse.png" alt="Каталог сборок" width="900">
+	<a href="https://github.com/Flenstick/TrollLauncher/releases/latest"><b>Скачать лаунчер ↗</b></a>
+	&nbsp; · &nbsp;
+	<a href="#возможности">Возможности</a>
+	&nbsp; · &nbsp;
+	<a href="https://github.com/Flenstick/TrollLauncher/issues/new?template=bug.yml">Сообщить об ошибке</a>
+	&nbsp; · &nbsp;
+	<a href="https://github.com/Flenstick/TrollLauncher/issues/new?template=idea.yml">Предложить идею</a>
 </p>
+
+<br>
+
+<p align="center">
+	<a href=".github/media/screenshot-browse.png"><img src=".github/media/screenshot-browse.png" alt="TrollLauncher: каталог сборок, поиск, фильтры и установка" width="100%"></a>
+	<br>
+	<sub>Находи сборки, выбирай моды и устанавливай их прямо из лаунчера.</sub>
+</p>
+
+## Возможности
+
+<table>
+	<tr>
+		<td width="50%" valign="top">
+			<h3>📦 Minecraft со всеми модами</h3>
+			<p>Каталог Modrinth: сборки, моды, шейдеры и ресурспаки. Fabric, Forge, NeoForge и Quilt, импорт <code>.mrpack</code> и автоматическая загрузка Java.</p>
+		</td>
+		<td width="50%" valign="top">
+			<h3>🎨 Твой интерфейс</h3>
+			<p>Светлая и тёмная основа, цветовые палитры и свой акцент. Логотип меняет цвет вместе с темой. Русский язык по умолчанию.</p>
+		</td>
+	</tr>
+	<tr>
+		<td valign="top">
+			<h3>🔑 Вход через Ely.by</h3>
+			<p>Авторизация по нику или почте, поддержка двухфакторной аутентификации и скинов Ely.by. Запуск игры через authlib-injector.</p>
+		</td>
+		<td valign="top">
+			<h3>🔎 Удобный размер и шрифт</h3>
+			<p>Масштаб от 80 до 150 %, горячие клавиши и шрифт на выбор: Inter, Golos Text, системный или свой установленный.</p>
+		</td>
+	</tr>
+	<tr>
+		<td valign="top">
+			<h3>🖥️ Под рукой, даже в фоне</h3>
+			<p>Трей с последними сборками, остановкой игры и временем в игре. Настраиваемые автозапуск, поведение крестика и клик по иконке.</p>
+		</td>
+		<td valign="top">
+			<h3>✨ Внимание к деталям</h3>
+			<p>На Linux снято ограничение WebKitGTK в 60 FPS. Реклама, телеметрия и сбор ошибок выключены.</p>
+		</td>
+	</tr>
+</table>
 
 ## Установка
 
-Arch Linux и производные (CachyOS, EndeavourOS, Manjaro):
+Готовая сборка доступна для **Arch Linux и производных · x86_64**: CachyOS, EndeavourOS, Manjaro.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Flenstick/TrollLauncher/main/install.sh | bash
 ```
 
-Скрипт соберёт пакет `trolllauncher-bin` и поставит его через pacman вместе с зависимостями.
-После установки лаунчер появится в меню приложений. Обновление — та же команда.
+Запускай без `sudo`: установщик сам запросит пароль для pacman, соберёт пакет `trolllauncher-bin`
+и установит зависимости. После установки TrollLauncher появится в меню приложений.
+**Для обновления выполни ту же команду.**
+
+> Другие платформы: готовых сборок для Windows и macOS пока нет. Архив этого релиза не поддерживает встроенное автообновление.
 
 <details>
-<summary>Удаление и ручная установка</summary>
+<summary><b>Ручная установка и скачивание архива</b></summary>
 
-Удалить:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Flenstick/TrollLauncher/main/install.sh | bash -s -- --uninstall
-```
-
-Сборки и миры остаются в `~/.local/share/TrollLauncher`.
-
-Вручную через PKGBUILD:
+Через PKGBUILD:
 
 ```sh
 git clone --depth 1 https://github.com/Flenstick/TrollLauncher
@@ -47,59 +91,88 @@ cd TrollLauncher/packaging/arch
 makepkg -si
 ```
 
-Или скачайте архив со [страницы релизов](https://github.com/Flenstick/TrollLauncher/releases/latest):
-внутри бинарник `trolllauncher`, ярлык `.desktop` и иконки.
+Или скачай архив со [страницы релизов](https://github.com/Flenstick/TrollLauncher/releases/latest).
+Внутри — бинарник `trolllauncher`, ярлык `.desktop`, иконки и лицензия.
+Архив требует системных библиотек; их список указан в [PKGBUILD](packaging/arch/PKGBUILD).
 
 </details>
 
-## Возможности
-
-**Всё, что умеет Modrinth App** — каталог сборок, модов, шейдеров и ресурспаков, установка в один клик,
-Fabric / Forge / NeoForge / Quilt, импорт `.mrpack`, Java скачивается сама.
-
-**Темы.** Набор цветовых палитр, свой акцентный цвет, светлая и тёмная основа. Логотип перекрашивается
-под тему.
-
-**Интерфейс под себя.** Масштаб 80–150 % (ползунок или <kbd>Ctrl</kbd> <kbd>+</kbd> / <kbd>−</kbd> / <kbd>0</kbd>),
-шрифт на выбор: Inter, Golos Text, системный или любой установленный. Русский язык по умолчанию.
-
-**Ely.by.** Вход по нику или почте с поддержкой 2FA, скины и головы с Ely.by, запуск через
-authlib-injector — играть можно без лицензии Microsoft.
-
-**Трей и фон.** Иконка с меню: последние сборки, остановка игры, время в игре. Что делает крестик,
-клик по иконке, автозапуск — всё настраивается. Команды для горячих клавиш (работают и на Wayland):
+<details>
+<summary><b>Удаление и сохранение данных</b></summary>
 
 ```sh
-trolllauncher --toggle        # показать или скрыть окно
-trolllauncher --launch-last   # запустить последнюю сборку
-trolllauncher --show          # показать окно
+curl -fsSL https://raw.githubusercontent.com/Flenstick/TrollLauncher/main/install.sh | bash -s -- --uninstall
 ```
 
-**Плавность.** На Linux снят лимит в 60 FPS у WebKitGTK — прокрутка и анимации идут с частотой
-монитора, в том числе на NVIDIA.
+Сборки, миры и настройки сохранятся в `~/.local/share/TrollLauncher`.
 
-**Без лишнего.** Реклама, телеметрия и сбор ошибок выключены.
+</details>
 
-## Сборка из исходников
+## Быстрые команды
 
-Нужны Rust (версия из `rust-toolchain.toml`), Node.js, pnpm и зависимости Tauri:
+Добавь команды в горячие клавиши своей среды рабочего стола. Они работают и на Wayland.
+
+| Команда | Действие |
+| --- | --- |
+| `trolllauncher --toggle` | Показать или скрыть окно |
+| `trolllauncher --launch-last` | Запустить последнюю сборку |
+| `trolllauncher --show` | Показать окно |
+
+Масштаб интерфейса: <kbd>Ctrl</kbd> + <kbd>+</kbd> / <kbd>−</kbd>,
+сброс: <kbd>Ctrl</kbd> + <kbd>0</kbd>. Горячие клавиши масштаба можно отключить в настройках.
+
+## Разработка
+
+TrollLauncher — форк [Modrinth App](https://github.com/modrinth/code), построенный на **Tauri, Rust и Vue**.
+
+<details>
+<summary><b>Собрать и запустить из исходников</b></summary>
+
+Нужны Rust из [`rust-toolchain.toml`](rust-toolchain.toml), Node.js ≥ 24.15 и pnpm 12.8.1.
+Команды ниже — для Arch Linux и производных.
 
 ```sh
 sudo pacman -S --needed base-devel webkit2gtk-4.1 libayatana-appindicator librsvg nodejs pnpm rustup
-git clone https://github.com/Flenstick/TrollLauncher && cd TrollLauncher
+git clone https://github.com/Flenstick/TrollLauncher
+cd TrollLauncher
 pnpm install
 cp packages/app-lib/.env.prod packages/app-lib/.env
-
-pnpm app:dev                              # запуск в режиме разработки
-cd apps/app && pnpm tauri build --no-bundle   # бинарник: target/release/trolllauncher
 ```
 
-Код лаунчера — `apps/app` (Rust, Tauri) и `apps/app-frontend` (Vue). Общая библиотека — `packages/app-lib`.
+Запуск в режиме разработки:
 
-## Лицензия
+```sh
+pnpm app:dev
+```
 
-TrollLauncher основан на [Modrinth App](https://github.com/modrinth/code) и распространяется
-под **GPL-3.0**, как и оригинал. Проект не связан с Modrinth и Rinth, Inc.; товарные знаки и логотипы
-Modrinth из форка удалены. Подробности — в [COPYING.md](COPYING.md).
+Сборка исполняемого файла:
 
-Minecraft — товарный знак Mojang AB. Проект не связан с Mojang и Microsoft.
+```sh
+cd apps/app
+pnpm tauri build --no-bundle
+```
+
+Результат: `target/release/trolllauncher` относительно корня репозитория.
+
+| Где | Что находится |
+| --- | --- |
+| [`apps/app`](apps/app) | Оболочка Tauri и Rust |
+| [`apps/app-frontend`](apps/app-frontend) | Интерфейс Vue |
+| [`packages/app-lib`](packages/app-lib) | Общая библиотека лаунчера |
+| [`packaging`](packaging) | Установка и упаковка для Linux |
+
+</details>
+
+Нашёл ошибку — [расскажи, как её повторить](https://github.com/Flenstick/TrollLauncher/issues/new?template=bug.yml).
+Есть идея — [предложи её здесь](https://github.com/Flenstick/TrollLauncher/issues/new?template=idea.yml).
+
+---
+
+<p align="center">
+	<img src=".github/media/icon.svg" alt="" width="36"><br>
+	<b>TrollLauncher</b><br>
+	<sub>На основе Modrinth App · <a href="apps/app/LICENSE">GPL-3.0</a> · <a href="COPYING.md">Лицензии компонентов</a></sub>
+</p>
+
+<sub>Независимый проект, не связанный с Modrinth, Rinth, Inc., Mojang или Microsoft.
+Minecraft — товарный знак Mojang AB. Компоненты монорепозитория распространяются под своими лицензиями.</sub>
