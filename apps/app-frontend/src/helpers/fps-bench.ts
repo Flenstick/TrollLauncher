@@ -121,6 +121,70 @@ async function tour(router: Router): Promise<void> {
 	console.warn('[FPSBENCH] done')
 }
 
+async function contentScroll(router: Router): Promise<void> {
+	await router.push(`/instance/${encodeURIComponent(import.meta.env.VITE_FPS_BENCH_INSTANCE)}`)
+	await wait(8000)
+	const scroller = findScroller()
+	console.warn(
+		`[FPSBENCH] scroller: ${scroller?.className ?? 'none'} range ${scroller ? scroller.scrollHeight - scroller.clientHeight : 0} rows ${document.querySelectorAll('[data-content-card-item]').length}`,
+	)
+	if (!scroller) return
+	const shadows = new Map<string, number>()
+	for (const element of document.querySelectorAll<HTMLElement>('*')) {
+		for (const pseudo of [null, '::before', '::after']) {
+			const shadow = getComputedStyle(element, pseudo).boxShadow
+			if (!shadow || shadow === 'none') continue
+			const rect = element.getBoundingClientRect()
+			const key = `${element.tagName.toLowerCase()}${pseudo ?? ''}.${[...element.classList].slice(0, 5).join('.')} ${Math.round(rect.width)}x${Math.round(rect.height)}`
+			shadows.set(key, (shadows.get(key) ?? 0) + 1)
+		}
+	}
+	for (const [key, count] of shadows) console.warn(`[FPSBENCH] shadow ${count}x ${key}`)
+	const variants: Array<[string, string]> = [
+		['baseline', ''],
+		['no table shadow', '[role="table"] { box-shadow: none !important; }'],
+		['no rowgroup shadow', '[role="rowgroup"] { box-shadow: none !important; }'],
+		['no row-level shadow', '[data-content-card-item], [data-content-card-item] * { box-shadow: none !important; }'],
+		['no pseudo shadow', '*::before, *::after { box-shadow: none !important; }'],
+		['no shadow', '* { box-shadow: none !important; }'],
+		['no filter', '* { filter: none !important; }'],
+	]
+	const style = document.head.appendChild(document.createElement('style'))
+	for (const [name, css] of variants) {
+		style.textContent = css
+		scroller.scrollTop = 0
+		await wait(300)
+		let js = 0
+		await measure(`content ${name}`, 240, (i) => {
+			const t = performance.now()
+			scroller.scrollTop += i < 120 ? 25 : -25
+			js += performance.now() - t
+		})
+		console.warn(`[FPSBENCH]   sync scroll js ${js.toFixed(0)} ms`)
+	}
+	style.textContent = ''
+	scroller.scrollTop = 0
+	await wait(300)
+	await measure('content small steps', 240, (i) => (scroller.scrollTop += i < 120 ? 3 : -3))
+	// Time spent in rendering a range shift (Vue patch + layout).
+	const rows = () => document.querySelectorAll('[data-content-card-item]').length
+	let worst = 0
+	let total = 0
+	for (let i = 0; i < 40; i++) {
+		await nextFrame()
+		scroller.scrollTop += 74
+		scroller.dispatchEvent(new Event('scroll'))
+		await nextFrame()
+		const t = performance.now()
+		void document.body.offsetHeight
+		const d = performance.now() - t
+		total += d
+		worst = Math.max(worst, d)
+	}
+	console.warn(`[FPSBENCH] forced layout after row shift: avg ${(total / 40).toFixed(1)} ms, worst ${worst.toFixed(1)} ms, rows ${rows()}`)
+	console.warn('[FPSBENCH] done')
+}
+
 export async function runFpsBench(router: Router): Promise<void> {
 	if (import.meta.env.VITE_FPS_BENCH_MODE === 'tour') {
 		await wait(Number(import.meta.env.VITE_FPS_BENCH_DELAY ?? 20000))
@@ -128,6 +192,19 @@ export async function runFpsBench(router: Router): Promise<void> {
 	}
 	await wait(Number(import.meta.env.VITE_FPS_BENCH_DELAY ?? 20000))
 	if (import.meta.env.VITE_FPS_BENCH_MODE === 'tabs') return clickTabs(router)
+	if (import.meta.env.VITE_FPS_BENCH_MODE === 'content') return contentScroll(router)
+	if (import.meta.env.VITE_FPS_BENCH_MODE === 'skins') {
+		await router.push('/skins')
+		await step('skins', 6000)
+		clickText('Забрать скин с аккаунта')
+		await step('skins-sync', 5000)
+		document.querySelectorAll<HTMLElement>('.skin-card')[0]?.click()
+		await step('skins-second', 5000)
+		clickText('OptiFine')
+		await step('skins-cape', 5000)
+		console.warn('[FPSBENCH] done')
+		return
+	}
 	await measure('idle', 120, () => {})
 	await router.push('/browse/mod')
 	await wait(6000)

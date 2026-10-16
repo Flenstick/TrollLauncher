@@ -56,7 +56,7 @@
 				<div v-if="!isEditing">
 					<FileUploadDragAndDrop
 						ref="fileUploadRef"
-						class="@container relative flex flex-col overflow-clip rounded-[20px] border border-solid border-surface-4 shadow-sm"
+						class="@container relative flex flex-col overflow-clip rounded-[20px] border border-solid border-surface-4"
 						:disabled="isBusy"
 						@drop-error="handleDropError"
 						@files-dropped="handleDroppedFiles"

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
 	CoffeeIcon,
+	GaugeIcon,
 	LanguagesIcon,
 	LightBulbIcon,
 	MicrochipIcon,
@@ -33,6 +34,7 @@ import BehaviorSettings from '@/components/ui/settings/display/BehaviorSettings.
 import FeatureFlagSettings from '@/components/ui/settings/display/FeatureFlagSettings.vue'
 import FeaturesSettings from '@/components/ui/settings/display/FeaturesSettings.vue'
 import LanguageSettings from '@/components/ui/settings/display/LanguageSettings.vue'
+import PerformanceSettings from '@/components/ui/settings/display/PerformanceSettings.vue'
 import TraySettings from '@/components/ui/settings/display/TraySettings.vue'
 import InstancesSyncedSettings from '@/components/ui/settings/instances/instances-synced-settings/index.vue'
 import JavaSettings from '@/components/ui/settings/instances/JavaSettings.vue'
@@ -121,6 +123,15 @@ const tabs = [
 		category: tabCategories.display,
 		icon: MonitorCogIcon,
 		content: TraySettings,
+	},
+	{
+		name: defineMessage({
+			id: 'app.settings.tabs.performance',
+			defaultMessage: 'Performance',
+		}),
+		category: tabCategories.display,
+		icon: GaugeIcon,
+		content: PerformanceSettings,
 	},
 	{
 		name: commonSettingsMessages.featureFlags,

@@ -55,7 +55,7 @@ export default new createRouter({
 		{
 			path: '/skins',
 			name: 'Skin selector',
-			component: () => import('@/pages/Skins.vue'),
+			component: () => import('@/pages/SkinLibrary.vue'),
 		},
 		{
 			path: '/screenshots',

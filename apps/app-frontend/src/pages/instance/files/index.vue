@@ -101,16 +101,20 @@ watch(
 	},
 	{ immediate: true },
 )
-watch(directoryQuery.isFetching, (fetching) => {
-	loading.value = fetching
-})
+watch(
+	directoryQuery.isFetching,
+	(fetching) => {
+		loading.value = fetching
+	},
+	{ immediate: true },
+)
 watch(directoryQuery.error, (queryError) => {
 	error.value = queryError
 	if (queryError) items.value = []
 })
 
 await instanceRootQuery.suspense()
-await directoryQuery.refetch()
+if (directoryQuery.data.value === undefined) await directoryQuery.suspense()
 firstPaintPending.value = false
 
 async function refresh() {

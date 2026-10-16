@@ -1,5 +1,5 @@
 import type { Ref } from 'vue'
-import { computed, ref, watch, watchEffect } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 export interface ScrollViewportOptions {
 	onScroll?: () => void
@@ -44,6 +44,7 @@ export function useScrollViewport(options: ScrollViewportOptions = {}) {
 	const viewportHeight = ref(0)
 	const containerOffset = ref(0)
 	const relativeScrollTop = computed(() => Math.max(0, scrollTop.value - containerOffset.value))
+	let scrollFrame: number | null = null
 
 	function updateContainerOffset() {
 		const listEl = listContainer.value
@@ -77,12 +78,16 @@ export function useScrollViewport(options: ScrollViewportOptions = {}) {
 	}
 
 	function handleScroll() {
-		if (scrollContainer.value) {
-			scrollTop.value = getScrollTop(scrollContainer.value)
-			updateContainerOffset()
-		}
+		if (scrollFrame !== null) return
+		scrollFrame = requestAnimationFrame(() => {
+			scrollFrame = null
+			if (scrollContainer.value) {
+				scrollTop.value = getScrollTop(scrollContainer.value)
+				updateContainerOffset()
+			}
 
-		options.onScroll?.()
+			options.onScroll?.()
+		})
 	}
 
 	function handleResize() {
@@ -90,33 +95,40 @@ export function useScrollViewport(options: ScrollViewportOptions = {}) {
 		options.onResize?.()
 	}
 
-	watchEffect((onCleanup) => {
-		if (typeof window === 'undefined') return
+	watch(
+		listContainer,
+		(listEl, _, onCleanup) => {
+			if (typeof window === 'undefined') return
 
-		const listEl = listContainer.value
-		if (!listEl) return
+			if (!listEl) return
 
-		const container = findScrollableAncestor(listEl)
-		scrollContainer.value = container
-		syncScrollState()
+			const container = findScrollableAncestor(listEl)
+			scrollContainer.value = container
+			syncScrollState()
 
-		container.addEventListener('scroll', handleScroll, { passive: true })
-		window.addEventListener('resize', handleResize, { passive: true })
+			container.addEventListener('scroll', handleScroll, { passive: true })
+			window.addEventListener('resize', handleResize, { passive: true })
 
-		let resizeObserver: ResizeObserver | undefined
-		if (!(container instanceof Window)) {
-			resizeObserver = new ResizeObserver(() => {
-				syncScrollState()
+			let resizeObserver: ResizeObserver | undefined
+			if (!(container instanceof Window)) {
+				resizeObserver = new ResizeObserver(() => {
+					syncScrollState()
+				})
+				resizeObserver.observe(container)
+			}
+
+			onCleanup(() => {
+				if (scrollFrame !== null) {
+					cancelAnimationFrame(scrollFrame)
+					scrollFrame = null
+				}
+				container.removeEventListener('scroll', handleScroll)
+				window.removeEventListener('resize', handleResize)
+				resizeObserver?.disconnect()
 			})
-			resizeObserver.observe(container)
-		}
-
-		onCleanup(() => {
-			container.removeEventListener('scroll', handleScroll)
-			window.removeEventListener('resize', handleResize)
-			resizeObserver?.disconnect()
-		})
-	})
+		},
+		{ flush: 'post' },
+	)
 
 	return {
 		resetScrollState,
@@ -155,7 +167,7 @@ export function useVirtualScroll<T>(items: Ref<T[]>, options: VirtualScrollOptio
 
 	const totalHeight = computed(() => items.value.length * itemHeight)
 
-	const visibleRange = computed(() => {
+	const visibleRange = computed<{ start: number; end: number }>((previous) => {
 		if (enabled && !enabled.value) {
 			return { start: 0, end: items.value.length }
 		}
@@ -173,6 +185,7 @@ export function useVirtualScroll<T>(items: Ref<T[]>, options: VirtualScrollOptio
 			Math.max(0, items.value.length - rangeSize),
 		)
 		const rangeEnd = Math.min(items.value.length, rangeStart + rangeSize)
+		if (previous?.start === rangeStart && previous.end === rangeEnd) return previous
 
 		return {
 			start: rangeStart,

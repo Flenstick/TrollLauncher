@@ -3164,6 +3164,9 @@
   "app.settings.tabs.tray": {
     "message": "Tray and background"
   },
+  "app.settings.tabs.performance": {
+    "message": "Performance"
+  },
   "app.sidebar.playing-as": {
     "message": "Playing as"
   },

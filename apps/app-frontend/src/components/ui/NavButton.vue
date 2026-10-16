@@ -10,7 +10,7 @@
 			'subpage-active': isSubpage && isSubpage(route),
 			disabled: disabled,
 		}"
-		class="nav-button border-none text-primary cursor-pointer w-12 rounded-full h-12 flex items-center justify-center text-2xl transition-all bg-transparent hover:bg-button-bg hover:text-contrast"
+		class="nav-button custom-focus-indicator border-none text-primary cursor-pointer w-12 rounded-full h-12 flex items-center justify-center text-2xl transition-all bg-transparent hover:bg-button-bg hover:text-contrast"
 		@click="onClick"
 	>
 		<slot />
@@ -55,6 +55,11 @@ defineOptions({
 <style lang="scss" scoped>
 .nav-button {
 	position: relative;
+
+	&:focus-visible {
+		outline: none;
+		box-shadow: inset 0 0 0 2px var(--color-brand);
+	}
 
 	&::before {
 		content: '';

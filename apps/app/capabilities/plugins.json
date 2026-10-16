@@ -105,6 +105,9 @@
 		"ads:default",
 		"friends:default",
 		"worlds:default",
-		"troll-tray:default"
+		"troll-tray:default",
+		"troll-perf:default",
+		"troll-skins:default",
+		"troll-update:default"
 	]
 }

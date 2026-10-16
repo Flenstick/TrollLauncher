@@ -27,6 +27,44 @@ fn main() {
                     ),
             )
             .plugin(
+                "troll-skins",
+                InlinedPlugin::new()
+                    .commands(&[
+                        "get_library",
+                        "add_skin",
+                        "update_skin",
+                        "remove_skin",
+                        "set_folders",
+                        "set_equipped",
+                        "get_texture",
+                        "export_skin",
+                        "fetch_by_nick",
+                        "fetch_url",
+                        "extra_capes",
+                        "elyby_apply",
+                        "elyby_open",
+                    ])
+                    .default_permission(
+                        DefaultPermissionRule::AllowAllCommands,
+                    ),
+            )
+            .plugin(
+                "troll-update",
+                InlinedPlugin::new()
+                    .commands(&["check", "install", "restart"])
+                    .default_permission(
+                        DefaultPermissionRule::AllowAllCommands,
+                    ),
+            )
+            .plugin(
+                "troll-perf",
+                InlinedPlugin::new()
+                    .commands(&["get_settings", "set_settings", "get_tools"])
+                    .default_permission(
+                        DefaultPermissionRule::AllowAllCommands,
+                    ),
+            )
+            .plugin(
                 "auth",
                 InlinedPlugin::new()
                     .commands(&[

@@ -992,26 +992,48 @@ pub async fn launch_minecraft(
         .join(format!("{version_jar}.jar"));
 
     let args = version_info.arguments.clone().unwrap_or_default();
-    let mut command = match wrapper {
-        Some(hook) => {
-            let mut cmd = shlex::split(hook)
-                .ok_or_else(|| {
-                    crate::ErrorKind::LauncherError(format!(
-                        "Invalid wrapper command: {hook}",
-                    ))
-                })?
-                .into_iter();
-            let mut command = Command::new(cmd.next().ok_or(
-                crate::ErrorKind::LauncherError(
-                    "Empty wrapper command".to_owned(),
-                ),
-            )?);
-            command.args(cmd);
+
+    // TrollLauncher: GameMode/MangoHud go in front of the user's wrapper,
+    // tuned JVM flags go before the user's Java arguments.
+    let performance = crate::state::PerformanceSettings::get().await;
+    let mut wrapper_parts = performance.wrapper_prefix();
+    if let Some(hook) = wrapper {
+        let parts = shlex::split(hook).ok_or_else(|| {
+            crate::ErrorKind::LauncherError(format!(
+                "Invalid wrapper command: {hook}",
+            ))
+        })?;
+        if parts.is_empty() {
+            return Err(crate::ErrorKind::LauncherError(
+                "Empty wrapper command".to_owned(),
+            )
+            .into());
+        }
+        wrapper_parts.extend(parts);
+    }
+    let mut command = match wrapper_parts.split_first() {
+        Some((program, rest)) => {
+            let mut command = Command::new(program);
+            command.args(rest);
             command.arg(&java_version.path);
             command
         }
         None => Command::new(&java_version.path),
     };
+    let java_args = {
+        let mut tuned = performance.jvm_args(
+            java_args,
+            memory.maximum,
+            java_version.parsed_version,
+        );
+        tuned.extend(java_args.iter().cloned());
+        tuned
+    };
+    tracing::info!(
+        "Performance: wrapper {:?}, preset {:?}",
+        performance.wrapper_prefix(),
+        performance.jvm_preset
+    );
 
     let env_args = Vec::from(env_args);
 

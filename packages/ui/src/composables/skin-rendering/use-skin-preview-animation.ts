@@ -1,6 +1,6 @@
 import { useRenderLoop } from '@tresjs/core'
 import * as THREE from 'three'
-import { computed, type ComputedRef, type Ref, ref, watch } from 'vue'
+import { computed, type ComputedRef, type Ref, ref, shallowRef, watch } from 'vue'
 
 import { useDebugLogger } from '../debug-logger'
 import type { SkinPreviewAnimationConfig } from './types'
@@ -37,8 +37,8 @@ type MaybeReadonlyRef<T> = Ref<T> | ComputedRef<T>
 export function useSkinPreviewAnimation(
 	animationConfig: MaybeReadonlyRef<SkinPreviewAnimationConfig | undefined>,
 ) {
-	const mixer = ref<THREE.AnimationMixer | null>(null)
-	const actions = ref<Record<string, THREE.AnimationAction>>({})
+	const mixer = shallowRef<THREE.AnimationMixer | null>(null)
+	const actions = shallowRef<Record<string, THREE.AnimationAction>>({})
 	const clock = new THREE.Clock()
 	const currentAnimation = ref<string>('')
 	const randomAnimationTimer = ref<number | null>(null)

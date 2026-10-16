@@ -85,6 +85,7 @@ import { useCheckDisableMouseover } from '@/composables/macCssFix.js'
 import { useAppEvent } from '@/composables/use-app-event'
 import { useAppSettings } from '@/composables/use-app-settings.ts'
 import { useError } from '@/composables/use-error.js'
+import { useGameRunningUiPause } from '@/composables/use-game-running-ui-pause'
 import { useInstanceMetadataRefresh } from '@/composables/use-instance-metadata-refresh'
 import { useQuickInstanceLimit } from '@/composables/use-quick-instance-limit.ts'
 import { isDarkTheme, useTheme } from '@/composables/use-theme.ts'
@@ -137,6 +138,7 @@ import {
 	syncedServersQueryOptions,
 } from '@/helpers/synced-options'
 import { syncedPackQueryOptions } from '@/helpers/synced-packs'
+import { startTrollUpdateChecks } from '@/helpers/troll-update'
 import { hasActivePride26Midas, hasMidasBadge } from '@/helpers/user-campaigns.ts'
 import { get_user_preferences } from '@/helpers/user-preferences.ts'
 import { parse_modrinth_user_link } from '@/helpers/users'
@@ -1407,6 +1409,8 @@ const sidebar = ref(null)
 provideMinecraftAccounts(computed(() => sidebar.value?.minecraftAccounts ?? null))
 
 useAppEvent('command', handleCommand, appEvents)
+useGameRunningUiPause(appEvents)
+onUnmounted(startTrollUpdateChecks())
 useAppEvent('notification', handleLiveNotification, appEvents)
 
 async function markLiveNotificationRead(notification) {

@@ -28,6 +28,9 @@ pub(crate) use self::instances::{
 mod settings;
 pub use self::settings::*;
 
+pub mod performance;
+pub use self::performance::{JvmPreset, PerformanceSettings, PerformanceTools};
+
 mod onboarding_checklist;
 pub use self::onboarding_checklist::*;
 

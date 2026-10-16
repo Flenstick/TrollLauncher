@@ -16,6 +16,7 @@ pub mod process;
 pub mod reports;
 pub mod server_address;
 pub mod settings;
+pub mod skin_library;
 pub mod tags;
 pub mod users;
 pub mod worlds;
@@ -51,6 +52,7 @@ pub mod prelude {
         install, instance, jre, metadata, minecraft_auth, mr_auth,
         onboarding_checklist, pack, process, settings,
         state::{ReleaseChannel, db_backup::app_db_backup_dir},
+        state::{JvmPreset, PerformanceSettings, PerformanceTools, performance},
         util::{
             io::{IOError, canonicalize},
             network::{is_network_metered, tcp_listen_any_loopback},

@@ -3128,6 +3128,9 @@
   "app.settings.tabs.tray": {
     "message": "Трей и фон"
   },
+  "app.settings.tabs.performance": {
+    "message": "Производительность"
+  },
   "app.sidebar.playing-as": {
     "message": "Сейчас играет"
   },

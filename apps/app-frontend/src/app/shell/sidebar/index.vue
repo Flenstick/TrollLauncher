@@ -3,13 +3,13 @@ import { defineMessages, useScrollIndicator, useVIntl } from '@modrinth/ui'
 import { OverlayScrollbars } from 'overlayscrollbars'
 import { computed, onMounted, onScopeDispose, ref } from 'vue'
 
+import SkinQuickSwitch from '@/components/ui/skin-library/SkinQuickSwitch.vue'
 import { useTheme } from '@/composables/use-theme'
 import PrideFundraiserBanner from '@/features/campaigns/pride-fundraiser-banner.vue'
 import FriendsList from '@/features/friends/friends-list/index.vue'
 import AccountsCard from '@/features/minecraft-accounts/accounts-card.vue'
 import type { MinecraftAccountsActions } from '@/features/minecraft-accounts/context'
 import NewsSidebar from '@/features/news/news-sidebar.vue'
-import OnboardingChecklist from '@/features/onboarding/checklist.vue'
 import type { ModrinthCredentials } from '@/helpers/mr_auth'
 import { injectOnboardingChecklist } from '@/providers/onboarding-checklist'
 
@@ -23,15 +23,16 @@ defineProps<{
 	requestSignIn: () => void
 }>()
 
-const emit = defineEmits<{
+defineEmits<{
 	'create-instance': []
 	'login-modrinth': []
 }>()
 
 const { formatMessage } = useVIntl()
 const appTheme = useTheme()
-const { hasLoggedIntoMinecraft, hasLoggedIntoModrinth, showChecklist } = injectOnboardingChecklist()
-const showFriendsList = computed(() => !showChecklist.value || hasLoggedIntoModrinth.value)
+// Чек-лист «Начало работы» убран: аккаунт Minecraft показываем всегда, друзей — после входа в Modrinth
+const { hasLoggedIntoModrinth } = injectOnboardingChecklist()
+const showFriendsList = computed(() => hasLoggedIntoModrinth.value)
 const accounts = ref<InstanceType<typeof AccountsCard> | null>(null)
 const friends = ref<InstanceType<typeof FriendsList> | null>(null)
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -88,7 +89,8 @@ const messages = defineMessages({
 	<div
 		class="app-sidebar mt-px relative flex h-[calc(100vh-var(--top-bar-height))] w-[300px] shrink-0 flex-col overflow-visible border-0 border-l-[1px] border-solid border-[--brand-gradient-border] before:pointer-events-none before:absolute before:inset-y-0 before:-left-8 before:w-8 before:content-['']"
 		:class="{
-			'before:bg-[linear-gradient(to_left,rgba(0,0,0,0.1),transparent_50%)]': appTheme.advancedRendering,
+			'before:bg-[linear-gradient(to_left,rgba(0,0,0,0.1),transparent_50%)]':
+				appTheme.advancedRendering,
 		}"
 	>
 		<div class="relative flex min-h-0 grow shrink flex-col">
@@ -98,23 +100,16 @@ const messages = defineMessages({
 				class="app-sidebar-scrollable relative min-h-0 grow shrink"
 				data-overlayscrollbars-initialize
 			>
-				<OnboardingChecklist
-					@create-instance="emit('create-instance')"
-					@login-minecraft="accounts?.login()"
-					@login-modrinth="emit('login-modrinth')"
-				/>
 				<div id="sidebar-teleport-target" class="sidebar-teleport-content contents"></div>
 				<div class="sidebar-default-content hidden" :class="{ 'sidebar-enabled': visible }">
-					<div
-						v-show="hasLoggedIntoMinecraft"
-						class="p-4 border-0 border-b-[1px] border-[--brand-gradient-border] border-solid"
-					>
+					<div class="p-4 border-0 border-b-[1px] border-[--brand-gradient-border] border-solid">
 						<h3 class="text-base text-primary font-medium m-0">
 							{{ formatMessage(messages.playingAs) }}
 						</h3>
 						<Suspense>
 							<AccountsCard ref="accounts" />
 						</Suspense>
+						<SkinQuickSwitch />
 					</div>
 					<div
 						v-show="showFriendsList"

@@ -237,3 +237,14 @@ textarea {
 		opacity: 0.6;
 	}
 }
+
+// TrollLauncher: frozen UI while a game is running in the background
+// (see composables/use-game-running-ui-pause.ts).
+html.troll-game-running *,
+html.troll-game-running *::before,
+html.troll-game-running *::after {
+	animation-play-state: paused !important;
+	transition: none !important;
+	backdrop-filter: none !important;
+	-webkit-backdrop-filter: none !important;
+}
