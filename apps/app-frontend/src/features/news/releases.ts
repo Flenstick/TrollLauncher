@@ -30,7 +30,7 @@ const IMAGE_PATTERN = /!\[[^\]]*]\((\S+?)\)|<img[^>]+src="([^"]+)"/
 
 /** Plain-text preview of a release body: no markdown, headings, links or images. */
 function summarize(body: string): string {
-	return body
+	const text = body
 		.replace(/<!--[\s\S]*?-->/g, '')
 		.replace(/<[^>]+>/g, '')
 		.replace(/!\[[^\]]*]\([^)]*\)/g, '')
@@ -40,7 +40,18 @@ function summarize(body: string): string {
 		.replace(/[*_`~]/g, '')
 		.replace(/\n{2,}/g, '\n')
 		.trim()
-		.slice(0, 220)
+	return clip(text, SUMMARY_LENGTH)
+}
+
+const SUMMARY_LENGTH = 240
+
+/** Cuts at the last whole line (or word) that fits and marks the cut with an ellipsis. */
+function clip(text: string, max: number): string {
+	if (text.length <= max) return text
+	const head = text.slice(0, max)
+	const lineEnd = head.lastIndexOf('\n')
+	const cut = lineEnd > max / 2 ? lineEnd : head.lastIndexOf(' ')
+	return `${head.slice(0, cut > 0 ? cut : max).trimEnd()}…`
 }
 
 export function launcherReleasesQueryOptions() {

@@ -185,6 +185,35 @@ async function contentScroll(router: Router): Promise<void> {
 	console.warn('[FPSBENCH] done')
 }
 
+/** Dev-only: walks through the main screens so an external script can take screenshots. */
+async function shots(router: Router): Promise<void> {
+	const { getCurrentWindow, LogicalPosition, LogicalSize } = await import('@tauri-apps/api/window')
+	const win = getCurrentWindow()
+	void win.setSize(new LogicalSize(1680, 1000)).catch(() => {})
+	void win.setPosition(new LogicalPosition(0, 0)).catch(() => {})
+	await wait(1500)
+	const instance = import.meta.env.VITE_FPS_BENCH_INSTANCE
+	await router.push('/')
+	await step('home', 6000)
+	await router.push('/browse/modpack')
+	await step('browse', 9000)
+	await router.push(`/instance/${encodeURIComponent(instance)}`)
+	await step('instance', 7000)
+	await router.push('/skins')
+	await wait(5000)
+	clickText('OptiFine')
+	await step('skins', 5000)
+	await router.push('/')
+	await wait(1500)
+	;(window as unknown as { __trollOpenSettings?: () => void }).__trollOpenSettings?.()
+	await wait(1200)
+	clickText('Производительность')
+	await step('performance', 3000)
+	clickText('Внешний вид')
+	await step('appearance', 3000)
+	console.warn('[FPSBENCH] done')
+}
+
 export async function runFpsBench(router: Router): Promise<void> {
 	if (import.meta.env.VITE_FPS_BENCH_MODE === 'tour') {
 		await wait(Number(import.meta.env.VITE_FPS_BENCH_DELAY ?? 20000))
@@ -193,6 +222,7 @@ export async function runFpsBench(router: Router): Promise<void> {
 	await wait(Number(import.meta.env.VITE_FPS_BENCH_DELAY ?? 20000))
 	if (import.meta.env.VITE_FPS_BENCH_MODE === 'tabs') return clickTabs(router)
 	if (import.meta.env.VITE_FPS_BENCH_MODE === 'content') return contentScroll(router)
+	if (import.meta.env.VITE_FPS_BENCH_MODE === 'shots') return shots(router)
 	if (import.meta.env.VITE_FPS_BENCH_MODE === 'skins') {
 		await router.push('/skins')
 		await step('skins', 6000)
