@@ -12624,7 +12624,7 @@ dependencies = [
 
 [[package]]
 name = "theseus_gui"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "aes-gcm",
  "async_zip",
