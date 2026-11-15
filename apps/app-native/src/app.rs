@@ -935,6 +935,10 @@ impl App {
             }
             if let Some(e) = &self.update_error {
                 ui.add(egui::Label::new(egui::RichText::new(format!("Не получилось: {e}")).font(regular(13.0)).color(lighten(DANGER(), 0.3))).wrap());
+                ui.add(egui::Label::new(egui::RichText::new(crate::update::manual_hint()).font(mono(12.0)).color(TEXT_DIM())).wrap());
+                if !cfg!(windows) && button(ui, "Скопировать команду", Some(Icon::Copy), Kind::Secondary, 30.0).clicked() {
+                    ui.ctx().copy_text("curl -fsSL https://raw.githubusercontent.com/Flenstick/TrollLauncher/main/install.sh | bash".into());
+                }
             }
             ui.horizontal(|ui| match self.update_stage {
                 2 => {
@@ -951,7 +955,20 @@ impl App {
                     let pts: Vec<_> = (0..=10).map(|i| r.center() + Vec2::angled(now * 5.0 + i as f32 * 0.2) * 8.0).collect();
                     ui.painter().add(egui::Shape::line(pts, Stroke::new(2.0, accent())));
                     ui.ctx().request_repaint();
-                    label(ui, "Скачиваю и ставлю…", medium(14.0), TEXT());
+                    let done = crate::update::DOWNLOADED.load(std::sync::atomic::Ordering::Relaxed) as f32 / 1_048_576.0;
+                    let total = crate::update::TOTAL.load(std::sync::atomic::Ordering::Relaxed) as f32 / 1_048_576.0;
+                    let text = if total > 0.0 && done < total {
+                        format!("Скачиваю: {done:.0} из {total:.0} МБ")
+                    } else if done > 0.0 {
+                        "Ставлю…".to_string()
+                    } else {
+                        "Начинаю скачивание…".to_string()
+                    };
+                    label(ui, text, medium(14.0), TEXT());
+                    if total > 0.0 {
+                        let (r, _) = ui.allocate_exact_size(vec2(140.0, 6.0), Sense::hover());
+                        progress_bar(ui.painter(), r, (done / total).clamp(0.0, 1.0));
+                    }
                 }
                 _ => {
                     if button(ui, "Обновить", Some(Icon::Download), Kind::Primary, 38.0).clicked() {

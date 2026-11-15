@@ -47,7 +47,38 @@ struct Asset {
 }
 
 fn client() -> reqwest::Client {
-    reqwest::Client::builder().user_agent(concat!("TrollLauncher/", env!("CARGO_PKG_VERSION"))).build().expect("http")
+    reqwest::Client::builder()
+        .user_agent(concat!("TrollLauncher/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(std::time::Duration::from_secs(20))
+        .read_timeout(std::time::Duration::from_secs(60))
+        .build()
+        .expect("http")
+}
+
+/// Прогресс скачивания обновления (байты), для полоски в окне.
+pub static DOWNLOADED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TOTAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Команда ручного обновления — показываем, если автоматически не вышло.
+pub fn manual_hint() -> &'static str {
+    if cfg!(windows) {
+        "Скачайте новую версию с сайта TrollLand или со страницы релизов на GitHub и запустите её."
+    } else {
+        "Обновите вручную командой в терминале:\ncurl -fsSL https://raw.githubusercontent.com/Flenstick/TrollLauncher/main/install.sh | bash"
+    }
+}
+
+async fn download_progress(url: &str) -> Result<Vec<u8>, String> {
+    use std::sync::atomic::Ordering;
+    let mut resp = client().get(url).send().await.map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?;
+    TOTAL.store(resp.content_length().unwrap_or(0), Ordering::Relaxed);
+    DOWNLOADED.store(0, Ordering::Relaxed);
+    let mut out = Vec::with_capacity(resp.content_length().unwrap_or(0) as usize);
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("связь оборвалась: {e}"))? {
+        out.extend_from_slice(&chunk);
+        DOWNLOADED.store(out.len() as u64, Ordering::Relaxed);
+    }
+    Ok(out)
 }
 
 fn parse_version(v: &str) -> Option<Vec<u64>> {
@@ -129,7 +160,7 @@ fn find_package(dir: &Path) -> Option<PathBuf> {
 
 /// Скачать, проверить и поставить. Новая версия запустится после `restart()`.
 pub async fn install(info: &UpdateInfo) -> Result<(), String> {
-    let data = download(&info.tarball_url).await?;
+    let data = download_progress(&info.tarball_url).await?;
     let expected = String::from_utf8_lossy(&download(&info.checksum_url).await?).split_whitespace().next().unwrap_or_default().to_lowercase();
     let actual = format!("{:x}", Sha256::digest(&data));
     if expected.len() != 64 || actual != expected {
@@ -167,7 +198,11 @@ async fn install_unix(info: &UpdateInfo, tarball: &[u8], exe: &Path) -> Result<(
             tokio::fs::write(work.join("PKGBUILD"), pkgbuild).await.map_err(|e| e.to_string())?;
             run(Command::new("makepkg").args(["-f", "--noconfirm", "--nodeps"]).env("SRCDEST", &work).current_dir(&work), "makepkg").await?;
             let pkg = find_package(&work).ok_or("makepkg не создал пакет")?;
-            return run(Command::new("pkexec").args(["pacman", "-U", "--noconfirm"]).arg(&pkg), "pacman").await;
+            // pkexec ждёт пароль в окне polkit; если окна нет (голый оконный менеджер) — ждал бы вечно
+            return match tokio::time::timeout(std::time::Duration::from_secs(180), run(Command::new("pkexec").args(["pacman", "-U", "--noconfirm"]).arg(&pkg), "pacman")).await {
+                Ok(r) => r,
+                Err(_) => Err("не дождался ввода пароля (нет окна polkit?)".into()),
+            };
         }
         run(Command::new("tar").arg("-xzf").arg(work.join(&name)).arg("-C").arg(&work), "tar").await?;
         let new_bin = work.join(format!("trolllauncher-{}-x86_64", info.version)).join("trolllauncher");
