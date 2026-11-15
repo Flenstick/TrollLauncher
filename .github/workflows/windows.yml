@@ -41,12 +41,27 @@ jobs:
           key: native-windows
 
       - name: Build
+        id: build
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          if ($env:TAG -and $env:EVENT_NAME -eq "release") {
+            $version = (Select-String -Path apps/app-native/Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+            $names = @(gh release view $env:TAG --json assets --jq '.assets[].name')
+            $required = @("TrollLauncher-$version-windows-x86_64.exe", "TrollLauncher-$version-windows-x86_64.exe.sha256", "TrollLauncher-windows-x86_64.exe")
+            if ($LASTEXITCODE -eq 0 -and @($required | Where-Object { $_ -notin $names }).Count -eq 0) {
+              "skipped=true" >> $env:GITHUB_OUTPUT
+              Write-Output "Windows files were built for this draft release; keeping the verified assets."
+              exit 0
+            }
+          }
           Copy-Item packages/app-lib/.env.prod packages/app-lib/.env
           cargo build --profile native -p trolllauncher-native
 
       - name: Package
+        if: steps.build.outputs.skipped != 'true'
         id: pkg
         shell: pwsh
         run: |
@@ -60,12 +75,13 @@ jobs:
           Get-ChildItem dist
 
       - uses: actions/upload-artifact@v4
+        if: steps.build.outputs.skipped != 'true'
         with:
           name: trolllauncher-windows
           path: dist/*
 
       - name: Attach to release
-        if: env.TAG != ''
+        if: env.TAG != '' && steps.build.outputs.skipped != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

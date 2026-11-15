@@ -201,11 +201,12 @@ cd apps/app && pnpm tauri build --no-bundle    # сборка: target/release/tr
 <details>
 <summary><b>Выпуск релиза</b></summary>
 
-1. Поднять версию в `apps/app/Cargo.toml`, `apps/app-frontend/package.json` и `packaging/arch/PKGBUILD`.
-2. Собрать: `cd apps/app && pnpm tauri build --no-bundle`, затем `packaging/linux/make-tarball.sh`.
-3. Рядом с архивом положить `trolllauncher-X.Y.Z-x86_64.tar.gz.sha256` (`sha256sum архив > архив.sha256`) и вписать сумму в PKGBUILD.
-4. Обложка: добавить версию в [`design/github/releases.json`](design/github/releases.json) и запустить `python3 design/github/render.py X.Y.Z`.
-5. Коммит, тег `vX.Y.Z`, релиз с архивом и `.sha256`. Первой строкой описания — `![](https://raw.githubusercontent.com/Flenstick/TrollLauncher/main/.github/media/releases/X.Y.Z.png)`: эта картинка станет обложкой новости в лаунчере.
+1. Поднять версию в `apps/app-native/Cargo.toml` и `packaging/arch/PKGBUILD`; обновить `Cargo.lock`.
+2. Проверить `cargo test -p trolllauncher-native`, собрать нативный Rust-интерфейс: `JAVA_HOME=/usr/lib/jvm/java-17-openjdk cargo build --profile native -p trolllauncher-native`.
+3. Запустить `packaging/linux/make-tarball.sh`: он создаёт архив Linux и `.sha256`. Вписать сумму архива в PKGBUILD.
+4. Добавить версию в [`design/github/releases.json`](design/github/releases.json) и запустить `python3 design/github/render.py X.Y.Z`.
+5. Коммит, тег `vX.Y.Z`, push. Создать черновик релиза с архивом Linux и `.sha256`; приложить копию архива с постоянным именем `TrollLauncher-linux-x86_64.tar.gz` для сайта.
+6. Запустить workflow `Windows build` с параметром `tag=vX.Y.Z`. Он прикладывает EXE, SHA-256 и файл с постоянным именем `TrollLauncher-windows-x86_64.exe`. Когда все файлы готовы, опубликовать релиз. Первой строкой описания — `![](https://raw.githubusercontent.com/Flenstick/TrollLauncher/<коммит>/.github/media/releases/X.Y.Z.png)`: сайт использует её как обложку.
 
 Слово `[critical]` в описании помечает обновление как важное.
 

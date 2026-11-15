@@ -8,26 +8,32 @@ const SORTS: [&str; 3] = ["Недавние", "По названию", "По в�
 
 impl App {
     pub fn page_library(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
-            label(ui, "Библиотека", bold(26.0), TEXT());
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                if button(ui, "Создать", Some(Icon::Plus), Kind::Primary, 34.0).clicked() {
-                    self.create.open = true;
-                }
-                if button(ui, "Сборки Modrinth", Some(Icon::Browse), Kind::Secondary, 34.0).clicked() {
-                    self.browse_tab = 1;
-                    self.go(ui, Page::Browse);
-                }
-                egui::ComboBox::from_id_salt("lib-sort").selected_text(SORTS[self.lib_sort]).width(170.0).show_ui(ui, |ui| {
-                    for (i, s) in SORTS.iter().enumerate() {
-                        ui.selectable_value(&mut self.lib_sort, i, *s);
-                    }
-                });
-                search_field(ui, &mut self.lib_search, "Поиск сборок", 230.0);
-            });
-        });
-        ui.add_space(10.0);
+		ui.horizontal(|ui| {
+			label(ui, "Библиотека", bold(26.0), TEXT());
+			ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+				ui.spacing_mut().item_spacing.x = 8.0;
+				if button(ui, "Создать", Some(Icon::Plus), Kind::Primary, 34.0).clicked() {
+					self.create.open = true;
+				}
+				if button(ui, "Импорт", Some(Icon::Folder), Kind::Secondary, 34.0).clicked() {
+					self.import_open = true;
+				}
+				if button(ui, "Сборки Modrinth", Some(Icon::Browse), Kind::Secondary, 34.0).clicked() {
+					self.browse_tab = 1;
+					self.go(ui, Page::Browse);
+				}
+			});
+		});
+		ui.add_space(10.0);
+		ui.horizontal(|ui| {
+			egui::ComboBox::from_id_salt("lib-sort").selected_text(SORTS[self.lib_sort]).width(170.0).show_ui(ui, |ui| {
+				for (i, s) in SORTS.iter().enumerate() {
+					ui.selectable_value(&mut self.lib_sort, i, *s);
+				}
+			});
+			search_field(ui, &mut self.lib_search, "Поиск сборок", 230.0);
+		});
+		ui.add_space(10.0);
 
         let loaders = ["", "Fabric", "Forge", "NeoForge", "Vanilla"];
         let labels: Vec<String> = ["Все", "Fabric", "Forge", "NeoForge", "Vanilla"]
@@ -61,7 +67,7 @@ impl App {
             ui.vertical_centered(|ui| {
                 if self.instances.is_empty() {
                     label(ui, "Сборок пока нет", semibold(16.0), TEXT_DIM());
-                    label(ui, "Нажмите «Создать» или поставьте готовую с Modrinth", regular(13.5), TEXT_FAINT());
+                    label(ui, "Создайте сборку, импортируйте её или установите с Modrinth", regular(13.5), TEXT_FAINT());
                 } else {
                     label(ui, "Ничего не найдено", semibold(16.0), TEXT_DIM());
                 }

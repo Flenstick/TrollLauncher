@@ -134,6 +134,9 @@ pub struct App {
     pub cat_seed: u64,
 
     pub create: CreateDialog,
+	pub import_open: bool,
+	pub dropped_mods: Vec<PathBuf>,
+	pub drop_target: Option<String>,
     pub ely: ElyDialog,
     pub nick: NickDialog,
     pub rename: RenameDialog,
@@ -240,6 +243,9 @@ impl App {
             cats: crate::cats::scan(),
             cat_seed: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
             create: CreateDialog { loader: 1, ..Default::default() },
+			import_open: std::env::var("TL_DIALOG").as_deref() == Ok("import"),
+			dropped_mods: Vec::new(),
+			drop_target: None,
             ely: ElyDialog::default(),
             nick: NickDialog::default(),
             rename: RenameDialog::default(),
@@ -343,7 +349,7 @@ impl App {
         }
     }
 
-    fn on_enter(&mut self, p: &Page) {
+    pub(crate) fn on_enter(&mut self, p: &Page) {
         if !self.ready {
             return;
         }
@@ -742,25 +748,7 @@ impl App {
             let y = ui.cursor().top();
             ui.painter().hline(full.center().x - 14.0..=full.center().x + 14.0, y, Stroke::new(1.0, BORDER()));
             ui.add_space(10.0);
-            let recent: Vec<Inst> = self.instances.iter().take(5).cloned().collect();
-            for inst in recent {
-                let (r, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click());
-                let t = hover_anim(ui, resp.id, resp.hovered());
-                let ir = r.shrink(4.0 - t);
-                Self::inst_icon(ui, ir, &inst, 9.0);
-                if self.is_running(&inst.id) {
-                    let c = pos2(ir.right() - 1.0, ir.bottom() - 1.0);
-                    ui.painter().circle_filled(c, 5.5, BG());
-                    ui.painter().circle_filled(c, 3.8, GREEN());
-                }
-                if self.page == Page::Instance(inst.id.clone()) {
-                    active_y = Some(r.center().y);
-                }
-                let resp = resp.on_hover_text(format!("{} · {}", inst.name, inst.game_version));
-                if resp.clicked() {
-                    self.go(ui, Page::Instance(inst.id.clone()));
-                }
-            }
+			if let Some(y) = self.sidebar_instances(ui, full.bottom()) { active_y = Some(y); }
             let (_, resp) = nav_button(ui, Icon::Plus, false, "Создать сборку");
             if resp.clicked() {
                 self.create.open = true;
@@ -812,7 +800,7 @@ impl App {
             crate::skin3d::draw_face(ui.painter(), r, t.tex.id(), t.h);
         } else if self.accounts.is_empty() {
             ui.painter().rect_filled(r, 6, RAISED());
-            icon(ui.painter(), Icon::User, r.shrink(5.0), TEXT_DIM());
+            icon(ui.painter(), Icon::User, r.shrink(5.0), hex(0x7f8bfe));
         } else {
             head(ui.painter(), r, &DEFAULT_LOOK, 7);
         }
@@ -834,24 +822,14 @@ impl App {
             ui.spacing_mut().item_spacing.x = 2.0;
             ui.add_space(6.0);
             ui.add_enabled_ui(!self.back.is_empty(), |ui| {
-                if icon_button(ui, Icon::Back, 30.0, "Назад").clicked()
-                    && let Some(p) = self.back.pop()
-                {
-                    self.fwd.push(self.page.clone());
-                    self.on_enter(&p);
-                    self.page = p;
-                    self.page_changed = Self::now(ui);
-                }
+                if icon_button(ui, Icon::Back, 30.0, "Назад").clicked() {
+					self.navigate_history(ui, false);
+				}
             });
             ui.add_enabled_ui(!self.fwd.is_empty(), |ui| {
-                if icon_button(ui, Icon::Forward, 30.0, "Вперёд").clicked()
-                    && let Some(p) = self.fwd.pop()
-                {
-                    self.back.push(self.page.clone());
-                    self.on_enter(&p);
-                    self.page = p;
-                    self.page_changed = Self::now(ui);
-                }
+                if icon_button(ui, Icon::Forward, 30.0, "Вперёд").clicked() {
+					self.navigate_history(ui, true);
+				}
             });
             ui.add_space(10.0);
             let title = match &self.page {
@@ -1104,6 +1082,7 @@ impl App {
         self.mod_info_dialog(ctx);
         self.project_dialog(ctx);
         self.inst_dialogs(ctx);
+		self.import_dialog(ctx);
         self.update_dialog_ui(ctx);
         let modal_frame = Frame::new().fill(PANEL()).corner_radius(14).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
 
@@ -1325,7 +1304,7 @@ impl App {
 
 }
 
-pub const DEFAULT_LOOK: SkinLook = SkinLook { skin: 0xc58c6b, hair: 0x3b2516, shirt: 0x2f8fa0, pants: 0x3a3f8f, shoes: 0x3a3a3a, eyes: 0x4a3a8a };
+pub const DEFAULT_LOOK: SkinLook = SkinLook { skin: 0x7f8bfe, hair: 0x2f2cf8, shirt: 0x2f2cf8, pants: 0x1e1e3a, shoes: 0x15152a, eyes: 0x1c1c34 };
 
 pub fn seed_of(id: &str) -> (u64, f32) {
     let mut h: u64 = 1469598103934665603;
@@ -1383,6 +1362,9 @@ fn window_button(ui: &mut Ui, ic: Icon, close: bool) -> egui::Response {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         self.tick(ui);
+		ui.painter().rect_filled(ui.max_rect(), 0, BG());
+		self.mouse_history(ui);
+		self.file_drop(ui.ctx());
 
         egui::Panel::left("nav")
             .exact_size(64.0)
@@ -1405,7 +1387,7 @@ impl eframe::App for App {
                     self.splash(ui);
                     return;
                 }
-                self.draw_cat(ui);
+				if self.page != Page::Home { self.draw_cat(ui); }
                 let now = Self::now(ui);
                 let t = if self.prefs.animations { smooth((((now - self.page_changed) / 0.22) as f32).clamp(0.0, 1.0)) } else { 1.0 };
                 if t < 1.0 {
@@ -1433,5 +1415,6 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.dialogs(&ctx);
         self.toasts_ui(ui);
+		self.file_drop_dialog(&ctx);
     }
 }
