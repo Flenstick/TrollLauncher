@@ -1,5 +1,6 @@
 //! TrollLauncher — нативный интерфейс на Rust (egui + wgpu) поверх движка theseus.
 #![allow(deprecated)]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 #![recursion_limit = "256"]
 
 mod app;
@@ -12,6 +13,7 @@ mod pages;
 mod prefs;
 mod selftest;
 mod skin3d;
+mod sys;
 mod theme;
 mod update;
 mod widgets;
@@ -19,6 +21,7 @@ mod widgets;
 use eframe::egui;
 
 fn main() -> eframe::Result {
+    update::wait_previous();
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--msa-login") {
         msa::run(args.get(2).map(String::as_str).unwrap_or_default());
@@ -74,7 +77,8 @@ fn main() -> eframe::Result {
             )
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([980.0, 640.0])
-            .with_decorations(false),
+            .with_decorations(false)
+            .with_icon(eframe::icon_data::from_png_bytes(include_bytes!("../../../packaging/linux/icons/256.png")).unwrap_or_default()),
         ..Default::default()
     };
     eframe::run_native("TrollLauncher", options, Box::new(|cc| Ok(Box::new(app::App::new(cc)))))

@@ -205,7 +205,7 @@ impl App {
                 "datapack" => "datapack",
                 _ => "mod",
             };
-            let _ = std::process::Command::new("xdg-open").arg(format!("https://modrinth.com/{kind}/{}", h.project_id)).spawn();
+            crate::sys::open(format!("https://modrinth.com/{kind}/{}", h.project_id));
         }
     }
 }

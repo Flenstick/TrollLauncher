@@ -333,7 +333,7 @@ impl Backend {
         self.task(|tx| async move {
             match instance::get_full_path(&id).await {
                 Ok(p) => {
-                    let _ = std::process::Command::new("xdg-open").arg(p).spawn();
+                    crate::sys::open(p);
                 }
                 Err(e) => Self::toast_err(&tx, "Папка не найдена", e),
             }
@@ -662,7 +662,7 @@ impl Backend {
                 let redirect = url::Url::parse(&redirect_uri).map_err(err)?;
                 let start = minecraft_auth::elyby_oauth_start(&client, &redirect_uri);
                 let state = start.state.clone();
-                let _ = std::process::Command::new("xdg-open").arg(&start.url).spawn();
+                crate::sys::open(&start.url);
                 let wait = async {
                     loop {
                         let (mut sock, _) = listener.accept().await.map_err(err)?;
@@ -843,7 +843,7 @@ impl Backend {
         self.task(|tx| async move {
             if account.elyby {
                 let _ = tx.send(Msg::Toast("Для Ely.by скин меняется на сайте ely.by — открываю страницу".into(), false));
-                let _ = std::process::Command::new("xdg-open").arg("https://ely.by/skins").spawn();
+                crate::sys::open("https://ely.by/skins");
                 return;
             }
             let variant = if skin.slim { theseus::minecraft_skins::MinecraftSkinVariant::Slim } else { theseus::minecraft_skins::MinecraftSkinVariant::Classic };
@@ -954,7 +954,7 @@ impl Backend {
             let Ok(dir) = instance::get_full_path(&id).await else { return };
             let p = dir.join(&file_path);
             let target = p.parent().map(|x| x.to_path_buf()).unwrap_or(dir);
-            let _ = std::process::Command::new("xdg-open").arg(target).spawn();
+            crate::sys::open(target);
         });
     }
 

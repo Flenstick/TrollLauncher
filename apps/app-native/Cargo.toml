@@ -4,6 +4,8 @@ version = "2.0.0"
 edition.workspace = true
 description = "TrollLauncher — нативный интерфейс на Rust (egui) поверх движка theseus"
 
+build = "build.rs"
+
 [[bin]]
 name = "trolllauncher-rs"
 path = "src/main.rs"
@@ -28,3 +30,7 @@ tao = "0.36"
 pulldown-cmark = { workspace = true }
 zip = { workspace = true }
 sha2 = { workspace = true }
+dirs = { workspace = true }
+
+[build-dependencies]
+winresource = "0.1"

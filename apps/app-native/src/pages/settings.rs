@@ -140,7 +140,7 @@ impl App {
             if button(ui, "Открыть папку", Some(Icon::Folder), Kind::Secondary, 32.0).clicked() {
                 let d = crate::cats::own_dir();
                 let _ = std::fs::create_dir_all(&d);
-                let _ = std::process::Command::new("xdg-open").arg(&d).spawn();
+                crate::sys::open(&d);
             }
             if button(ui, "Перезагрузить все", Some(Icon::Refresh), Kind::Secondary, 32.0).clicked() {
                 self.cats = crate::cats::scan();
@@ -218,15 +218,16 @@ impl App {
         setting_row(ui, "Вся память сразу", "-Xms = -Xmx: Java не растягивает кучу во время игры (меньше фризов, но память занята целиком)", |ui| {
             changed |= toggle(ui, &mut p.s.full_heap_at_start).changed();
         });
-        let gm = if p.tools.gamemode { "Feral GameMode: режим производительности CPU и приоритет игре" } else { "gamemoderun не найден — поставьте пакет gamemode" };
-        setting_row(ui, "GameMode", gm, |ui| {
-            ui.add_enabled_ui(p.tools.gamemode, |ui| changed |= toggle(ui, &mut p.s.gamemode).changed());
-        });
-        let mh = if p.tools.mangohud { "Счётчик FPS, загрузка CPU/GPU поверх игры" } else { "mangohud не найден — поставьте пакет mangohud" };
-        setting_row(ui, "MangoHud", mh, |ui| {
-            ui.add_enabled_ui(p.tools.mangohud, |ui| changed |= toggle(ui, &mut p.s.mangohud).changed());
-        });
-
+        if cfg!(target_os = "linux") {
+            let gm = if p.tools.gamemode { "Feral GameMode: режим производительности CPU и приоритет игре" } else { "gamemoderun не найден — поставьте пакет gamemode" };
+            setting_row(ui, "GameMode", gm, |ui| {
+                ui.add_enabled_ui(p.tools.gamemode, |ui| changed |= toggle(ui, &mut p.s.gamemode).changed());
+            });
+            let mh = if p.tools.mangohud { "Счётчик FPS, загрузка CPU/GPU поверх игры" } else { "mangohud не найден — поставьте пакет mangohud" };
+            setting_row(ui, "MangoHud", mh, |ui| {
+                ui.add_enabled_ui(p.tools.mangohud, |ui| changed |= toggle(ui, &mut p.s.mangohud).changed());
+            });
+        }
         setting_row(ui, "Автообновление sfatm", "Перед запуском сборки с нашим модом sfatm лаунчер скачивает новую версию с GitHub (sfatm-releases), если она вышла", |ui| {
             changed |= toggle(ui, &mut p.s.sfatm_autoupdate).changed();
         });
@@ -252,13 +253,13 @@ impl App {
         let base = dirs_base();
         setting_row(ui, "Папка лаунчера", &base.display().to_string(), |ui| {
             if button(ui, "Открыть", Some(Icon::Folder), Kind::Secondary, 32.0).clicked() {
-                let _ = std::process::Command::new("xdg-open").arg(&base).spawn();
+                crate::sys::open(&base);
             }
         });
         let inst = base.join("profiles");
         setting_row(ui, "Сборки", &inst.display().to_string(), |ui| {
             if button(ui, "Открыть", Some(Icon::Folder), Kind::Secondary, 32.0).clicked() {
-                let _ = std::process::Command::new("xdg-open").arg(&inst).spawn();
+                crate::sys::open(&inst);
             }
         });
     }
@@ -364,10 +365,7 @@ impl App {
 }
 
 fn dirs_base() -> std::path::PathBuf {
-    std::env::var_os("XDG_DATA_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".local/share"))
-        .join(crate::backend::APP_ID)
+    crate::sys::data_root().join(crate::backend::APP_ID)
 }
 
 /// Мини-окно темы: боковая панель, страница, карточка с текстом и кнопкой акцента.

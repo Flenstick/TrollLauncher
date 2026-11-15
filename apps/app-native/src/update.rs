@@ -1,9 +1,11 @@
 //! Автообновление TrollLauncher с GitHub-релизов (Flenstick/TrollLauncher).
 //!
-//! Тот же формат, что у старой Tauri-версии: в релизе лежат `trolllauncher-<ver>-x86_64.tar.gz`
-//! и `.tar.gz.sha256`. Архив проверяется по sha256, потом ставится так же, как стоит текущая копия:
+//! Linux — тот же формат, что у старой Tauri-версии: `trolllauncher-<ver>-x86_64.tar.gz` и `.sha256`,
+//! ставится так же, как стоит текущая копия:
 //! - пакет pacman (`trolllauncher-bin`) — makepkg по PKGBUILD из тега релиза и `pkexec pacman -U`;
 //! - иначе исполняемый файл подменяется на месте (rename работает и у запущенной программы).
+//! Windows — `TrollLauncher-<ver>-windows-x86_64.exe` и `.sha256`: запущенный exe переименовывается
+//! в `.old.exe` (Windows это разрешает), новый встаёт на его место, старый удаляется при следующем запуске.
 //!
 //! `TROLLLAUNCHER_PRETEND_VERSION=1.0.0` — притвориться старой версией для проверки.
 
@@ -80,7 +82,7 @@ pub async fn check() -> Result<Option<UpdateInfo>, String> {
     if latest <= installed {
         return Ok(None);
     }
-    let tarball = format!("trolllauncher-{version}-x86_64.tar.gz");
+    let tarball = asset_name(&version);
     let find = |name: &str| release.assets.iter().find(|a| a.name == name).map(|a| a.browser_download_url.clone());
     let (Some(tarball_url), Some(checksum_url)) = (find(&tarball), find(&format!("{tarball}.sha256"))) else { return Ok(None) };
     // первая строка описания — картинка-обложка, её в лаунчере не показываем
@@ -88,10 +90,16 @@ pub async fn check() -> Result<Option<UpdateInfo>, String> {
     Ok(Some(UpdateInfo { current, critical: release.body.contains("[critical]"), notes, version, tarball_url, checksum_url }))
 }
 
+/// Имя файла релиза для этой системы.
+fn asset_name(version: &str) -> String {
+    if cfg!(windows) { format!("TrollLauncher-{version}-windows-x86_64.exe") } else { format!("trolllauncher-{version}-x86_64.tar.gz") }
+}
+
 async fn download(url: &str) -> Result<Vec<u8>, String> {
     Ok(client().get(url).send().await.map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?.to_vec())
 }
 
+#[cfg(not(windows))]
 async fn run(cmd: &mut Command, what: &str) -> Result<(), String> {
     let out = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).output().await.map_err(|e| format!("{what}: {e}"))?;
     if out.status.success() {
@@ -102,6 +110,7 @@ async fn run(cmd: &mut Command, what: &str) -> Result<(), String> {
     Err(format!("{what} завершился с ошибкой ({}):\n{}", out.status, tail.into_iter().rev().collect::<Vec<_>>().join("\n")))
 }
 
+#[cfg(not(windows))]
 async fn owned_by_pacman(exe: &Path) -> bool {
     Command::new("pacman")
         .arg("-Qqo")
@@ -113,28 +122,47 @@ async fn owned_by_pacman(exe: &Path) -> bool {
         .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == PACKAGE)
 }
 
+#[cfg(not(windows))]
 fn find_package(dir: &Path) -> Option<PathBuf> {
     std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(PACKAGE) && n.contains(".pkg.tar")))
 }
 
 /// Скачать, проверить и поставить. Новая версия запустится после `restart()`.
 pub async fn install(info: &UpdateInfo) -> Result<(), String> {
-    let tarball = download(&info.tarball_url).await?;
+    let data = download(&info.tarball_url).await?;
     let expected = String::from_utf8_lossy(&download(&info.checksum_url).await?).split_whitespace().next().unwrap_or_default().to_lowercase();
-    let actual = format!("{:x}", Sha256::digest(&tarball));
+    let actual = format!("{:x}", Sha256::digest(&data));
     if expected.len() != 64 || actual != expected {
-        return Err("контрольная сумма архива не совпала, обновление отменено".into());
+        return Err("контрольная сумма не совпала, обновление отменено".into());
     }
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+    #[cfg(windows)]
+    {
+        let new = exe.with_extension("new.exe");
+        let old = exe.with_extension("old.exe");
+        tokio::fs::write(&new, &data).await.map_err(|e| format!("нет доступа к папке {}: {e}", exe.parent().map(|p| p.display().to_string()).unwrap_or_default()))?;
+        let _ = tokio::fs::remove_file(&old).await;
+        tokio::fs::rename(&exe, &old).await.map_err(|e| e.to_string())?;
+        if let Err(e) = tokio::fs::rename(&new, &exe).await {
+            let _ = tokio::fs::rename(&old, &exe).await;
+            return Err(e.to_string());
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    install_unix(info, &data, &exe).await
+}
+
+#[cfg(not(windows))]
+async fn install_unix(info: &UpdateInfo, tarball: &[u8], exe: &Path) -> Result<(), String> {
     let work = std::env::temp_dir().join(format!("trolllauncher-update-{}", std::process::id()));
     let _ = tokio::fs::remove_dir_all(&work).await;
     tokio::fs::create_dir_all(&work).await.map_err(|e| e.to_string())?;
     let name = format!("trolllauncher-{}-x86_64.tar.gz", info.version);
-    tokio::fs::write(work.join(&name), &tarball).await.map_err(|e| e.to_string())?;
-
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+    tokio::fs::write(work.join(&name), tarball).await.map_err(|e| e.to_string())?;
     let res = async {
-        if owned_by_pacman(&exe).await {
+        if owned_by_pacman(exe).await {
             let pkgbuild = download(&format!("https://raw.githubusercontent.com/{REPO}/v{}/packaging/arch/PKGBUILD", info.version)).await?;
             tokio::fs::write(work.join("PKGBUILD"), pkgbuild).await.map_err(|e| e.to_string())?;
             run(Command::new("makepkg").args(["-f", "--noconfirm", "--nodeps"]).env("SRCDEST", &work).current_dir(&work), "makepkg").await?;
@@ -145,12 +173,11 @@ pub async fn install(info: &UpdateInfo) -> Result<(), String> {
         let new_bin = work.join(format!("trolllauncher-{}-x86_64", info.version)).join("trolllauncher");
         let staged = exe.with_extension("update");
         tokio::fs::copy(&new_bin, &staged).await.map_err(|e| format!("нет доступа к {}: {e}", exe.display()))?;
-        #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             tokio::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).await.map_err(|e| e.to_string())?;
         }
-        tokio::fs::rename(&staged, &exe).await.map_err(|e| e.to_string())
+        tokio::fs::rename(&staged, exe).await.map_err(|e| e.to_string())
     }
     .await;
     let _ = tokio::fs::remove_dir_all(&work).await;
@@ -158,15 +185,47 @@ pub async fn install(info: &UpdateInfo) -> Result<(), String> {
 }
 
 /// Перезапустить лаунчер новой версией. Движок держит блокировку папки, поэтому новая копия
-/// стартует только после выхода этой (ждёт её через `kill -0`).
+/// сначала ждёт, пока эта закроется (`TL_WAIT_PID`, см. `wait_previous`).
 pub fn restart() -> ! {
     if let Ok(exe) = std::env::current_exe() {
-        // после подмены файла /proc/self/exe указывает на «… (deleted)» — берём путь без суффикса
-        let path = exe.to_string_lossy().trim_end_matches(" (deleted)").to_string();
-        let script = format!("while kill -0 {} 2>/dev/null; do sleep 0.2; done; exec \"$0\"", std::process::id());
-        let _ = std::process::Command::new("sh").arg("-c").arg(script).arg(path).stdin(Stdio::null()).spawn();
+        // на Linux после подмены файла /proc/self/exe указывает на «… (deleted)»
+        let path = PathBuf::from(exe.to_string_lossy().trim_end_matches(" (deleted)").to_string());
+        let _ = std::process::Command::new(path).env("TL_WAIT_PID", std::process::id().to_string()).stdin(Stdio::null()).spawn();
     }
     std::process::exit(0);
+}
+
+fn alive(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+            .creation_flags(crate::sys::CREATE_NO_WINDOW)
+            .output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(&format!("\"{pid}\"")))
+    }
+    #[cfg(not(windows))]
+    {
+        Path::new(&format!("/proc/{pid}")).exists()
+    }
+}
+
+/// Вызывается при старте: дождаться выхода прошлой копии после обновления (не дольше 15 с)
+/// и убрать оставшийся от обновления `.old.exe`.
+pub fn wait_previous() {
+    if let Some(pid) = std::env::var("TL_WAIT_PID").ok().and_then(|p| p.parse::<u32>().ok()) {
+        let start = std::time::Instant::now();
+        while alive(pid) && start.elapsed() < std::time::Duration::from_secs(15) {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        // SAFETY: в самом начале main, до запуска других потоков
+        unsafe { std::env::remove_var("TL_WAIT_PID") };
+    }
+    #[cfg(windows)]
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::fs::remove_file(exe.with_extension("old.exe"));
+    }
 }
 
 #[cfg(test)]

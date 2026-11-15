@@ -282,7 +282,7 @@ impl App {
                     ui.painter().rect_filled(cap, egui::CornerRadius { nw: 0, ne: 0, sw: 10, se: 10 }, Color32::from_black_alpha((80.0 + 90.0 * t) as u8));
                     text_at(ui.painter(), pos2(cap.left() + 10.0, cap.center().y), Align2::LEFT_CENTER, name, medium(11.5), Color32::WHITE);
                     if resp.clicked() {
-                        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+                        crate::sys::open(path);
                     }
                 }
             });

@@ -593,7 +593,7 @@ impl App {
                             self.export = None;
                             self.toasts.push(Toast { text: format!("Сборка экспортирована: {}", path.display()), error: false, born: now });
                             if let Some(dir) = path.parent() {
-                                let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+                                crate::sys::open(dir);
                             }
                         }
                         Ok(None) => {}

@@ -35,9 +35,7 @@ impl Default for Prefs {
 }
 
 pub fn xdg_data() -> PathBuf {
-    std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".local/share"))
+    crate::sys::data_root()
 }
 pub fn data_dir() -> PathBuf {
     xdg_data().join(crate::backend::APP_ID)

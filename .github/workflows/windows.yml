@@ -1,0 +1,72 @@
+name: Windows build
+
+# Собирает TrollLauncher (Rust) под Windows и прикладывает к релизу:
+#   TrollLauncher-<версия>-windows-x86_64.exe + .sha256 — для автообновления,
+#   TrollLauncher-windows-x86_64.exe — постоянная ссылка для сайта.
+# Ручной запуск без тега — проверочная сборка, exe попадает в артефакты.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег релиза, к которому приложить exe (пусто — только проверочная сборка)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.ref }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Rust toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native-windows
+
+      - name: Build
+        shell: pwsh
+        run: |
+          Copy-Item packages/app-lib/.env.prod packages/app-lib/.env
+          cargo build --profile native -p trolllauncher-native
+
+      - name: Package
+        id: pkg
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path apps/app-native/Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $name = "TrollLauncher-$version-windows-x86_64.exe"
+          Copy-Item target/native/trolllauncher-rs.exe "dist/$name"
+          Copy-Item target/native/trolllauncher-rs.exe "dist/TrollLauncher-windows-x86_64.exe"
+          $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLower()
+          [IO.File]::WriteAllText("$PWD/dist/$name.sha256", "$hash  $name`n")
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trolllauncher-windows
+          path: dist/*
+
+      - name: Attach to release
+        if: env.TAG != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload $env:TAG (Get-ChildItem dist).FullName --clobber
