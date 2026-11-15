@@ -112,17 +112,23 @@ Inter, Golos Text, системный или любой установленны
 
 ## Установка
 
-Готовая сборка — для **Arch Linux и производных, x86_64**: CachyOS, EndeavourOS, Manjaro.
+**Windows 10 и 11** — скачай [TrollLauncher-windows-x86_64.exe](https://github.com/Flenstick/TrollLauncher/releases/latest/download/TrollLauncher-windows-x86_64.exe)
+и запусти. Если SmartScreen предупредит о неизвестном издателе — «Подробнее» → «Выполнить в любом случае».
+
+**Linux (x86_64)** — одна команда в терминале:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Flenstick/TrollLauncher/main/install.sh | bash
 ```
 
-Запускай без `sudo`: установщик сам спросит пароль, соберёт пакет `trolllauncher-bin` и поставит зависимости.
-После установки TrollLauncher появится в меню приложений. Дальше он **обновляется сам** — кнопка появится
-в верхней панели, когда выйдет новая версия.
+Запускай без `sudo`. На Arch и производных (CachyOS, EndeavourOS, Manjaro) установщик соберёт пакет `trolllauncher-bin`
+и поставит зависимости. На остальных дистрибутивах (Ubuntu, Mint, Fedora, openSUSE…) скачает последний релиз,
+проверит SHA-256 и положит лаунчер в `~/.local/bin` с ярлыком в меню — без прав администратора; если нет WebKitGTK 4.1,
+подскажет, какой пакет поставить. Ключ `--local` — такая же установка в домашнюю папку и на Arch.
 
-> Для Windows и macOS готовых сборок пока нет.
+Дальше TrollLauncher **обновляется сам** на обеих системах — кнопка появится в верхней панели, когда выйдет новая версия.
+
+> Для macOS готовых сборок пока нет.
 
 <details>
 <summary><b>Ручная установка</b></summary>
