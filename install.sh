@@ -13,7 +13,6 @@
 set -euo pipefail
 
 REPO="Flenstick/TrollLauncher"
-BRANCH="main"
 PKG="trolllauncher-bin"
 BIN_DIR="$HOME/.local/bin"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -64,13 +63,20 @@ fi
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+command -v curl >/dev/null || fail "нужен curl"
+
+step "Ищу последнюю версию"
+tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | sed -n '1p')"
+[[ -n "$tag" ]] || fail "не удалось узнать последнюю версию (GitHub недоступен?)"
+version="${tag#v}"
+
 if [[ "$mode" == "pacman" ]]; then
 	step "Проверяю инструменты сборки пакета"
 	if ! command -v fakeroot >/dev/null || ! command -v makepkg >/dev/null; then
 		sudo pacman -S --needed --noconfirm fakeroot pacman
 	fi
 	step "Скачиваю PKGBUILD"
-	curl -fsSL "https://raw.githubusercontent.com/$REPO/$BRANCH/packaging/arch/PKGBUILD" -o "$work/PKGBUILD"
+	curl -fsSL "https://raw.githubusercontent.com/$REPO/$tag/packaging/arch/PKGBUILD" -o "$work/PKGBUILD"
 	version="$(sed -n 's/^pkgver=//p' "$work/PKGBUILD")"
 	installed="$(pacman -Q "$PKG" 2>/dev/null | awk '{print $2}' || true)"
 	[[ -n "$installed" ]] && printf '    установлена %s, последняя %s\n' "${installed%-*}" "$version"
@@ -81,13 +87,9 @@ if [[ "$mode" == "pacman" ]]; then
 	exit 0
 fi
 
-command -v curl >/dev/null || fail "нужен curl"
 command -v tar >/dev/null || fail "нужен tar"
 
-step "Ищу последнюю версию"
-tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
-[[ -n "$tag" ]] || fail "не удалось узнать последнюю версию (GitHub недоступен?)"
-version="${tag#v}"
+
 name="trolllauncher-$version-x86_64"
 base="https://github.com/$REPO/releases/download/$tag"
 
