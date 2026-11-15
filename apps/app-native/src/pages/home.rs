@@ -87,7 +87,7 @@ impl App {
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if button(ui, "Аккаунты", Some(Icon::User), Kind::Secondary, 34.0).clicked() {
-                            self.settings_section = 3;
+                            self.settings_section = ACCOUNTS_SECTION;
                             self.go(ui, Page::Settings);
                         }
                     });

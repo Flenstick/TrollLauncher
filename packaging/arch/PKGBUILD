@@ -1,6 +1,6 @@
 # Maintainer: Flenstick <https://github.com/Flenstick>
 pkgname=trolllauncher-bin
-pkgver=2.0.1
+pkgver=2.0.2
 pkgrel=1
 pkgdesc='Minecraft launcher with modpacks, mods, themes and Ely.by login'
 arch=('x86_64')
@@ -15,7 +15,7 @@ provides=('trolllauncher')
 conflicts=('trolllauncher')
 options=('!strip' '!debug')
 source=("$url/releases/download/v$pkgver/trolllauncher-$pkgver-x86_64.tar.gz")
-sha256sums=('59a64e85ccde005a77a333b736b99e1736791fe395b57063ca866bacfb4809e5')
+sha256sums=('9e348bf7aa53953982dc4172b4c71ebc7a541c079dc19b834b760f63a8ce07b8')
 
 package() {
 	cd "trolllauncher-$pkgver-x86_64"

@@ -97,5 +97,25 @@
 		"width": 1060,
 		"top": 110,
 		"pose": "walk"
+	},
+	{
+		"version": "2.0.2",
+		"title": "Обзор как на Modrinth",
+		"shot": "native-project",
+		"features": [
+			"Окно мода, категории, CurseForge",
+			"Скины синхронизируются с sfatm",
+			"Выбор Java и папки лаунчера",
+			"Исправлен вход Ely.by на Windows"
+		],
+		"crop": [
+			0,
+			0,
+			1280,
+			800
+		],
+		"width": 1060,
+		"top": 110,
+		"pose": "idle"
 	}
 ]

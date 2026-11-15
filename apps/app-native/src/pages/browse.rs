@@ -34,14 +34,27 @@ impl App {
         self.browse_offset = if more { self.hits.len() as u32 } else { 0 };
         self.browse_seq += 1;
         self.browse_loading = true;
-        self.be.search(self.browse_seq, self.browse_query.trim().to_string(), pt, ver, loader, SORTS[self.browse_sort].1, self.browse_offset);
+        let cats: Vec<String> = self.browse_cats.iter().cloned().collect();
+        if self.browse_source == 1 {
+            self.be.search_cf(self.browse_seq, self.browse_query.trim().to_string(), pt, ver, loader, SORTS[self.browse_sort].1, self.browse_offset, cats, self.prefs.cf_key.clone());
+        } else {
+            self.be.search(self.browse_seq, self.browse_query.trim().to_string(), pt, ver, loader, SORTS[self.browse_sort].1, self.browse_offset, cats);
+        }
         let _ = now;
     }
 
     pub fn page_browse(&mut self, ui: &mut Ui) {
         let now = Self::now(ui);
         ui.horizontal(|ui| {
-            label(ui, "Обзор Modrinth", bold(26.0), TEXT());
+            label(ui, if self.browse_source == 1 { "Обзор CurseForge" } else { "Обзор Modrinth" }, bold(26.0), TEXT());
+            ui.add_space(12.0);
+            let mut src = self.browse_source;
+            if segmented(ui, Id::new("browse-src"), &["Modrinth", "CurseForge"], &mut src) {
+                self.browse_source = src;
+                self.browse_cats.clear();
+                self.hits.clear();
+                self.browse_sig.clear();
+            }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 // куда ставить
                 let cur = self.browse_target.as_ref().and_then(|t| self.inst(t)).map(|i| format!("{} · {} {}", i.name, i.loader, i.game_version)).unwrap_or_else(|| "Выберите сборку".into());
@@ -64,14 +77,25 @@ impl App {
         });
         ui.add_space(10.0);
         let labels: Vec<String> = TYPES.iter().map(|t| t.0.to_string()).collect();
-        tabs(ui, Id::new("browse-tabs"), &labels, &mut self.browse_tab);
+        if tabs(ui, Id::new("browse-tabs"), &labels, &mut self.browse_tab) {
+            self.browse_cats.clear();
+        }
         let y = ui.cursor().top() - 8.0;
         ui.painter().hline(ui.max_rect().x_range(), y, Stroke::new(1.0, BORDER()));
         ui.add_space(14.0);
 
+        if self.browse_source == 1 && self.prefs.cf_key.trim().is_empty() {
+            self.cf_key_panel(ui);
+            return;
+        }
+        let side_w = 230.0;
+        let full_w = ui.available_width();
+        ui.horizontal_top(|ui| {
+        ui.allocate_ui_with_layout(vec2(full_w - side_w - 20.0, 10.0), Layout::top_down(Align::Min), |ui| {
+        ui.set_width(full_w - side_w - 20.0);
         ui.horizontal(|ui| {
             let w = ui.available_width() - 210.0 - 250.0;
-            let resp = search_field(ui, &mut self.browse_query, "Искать на Modrinth", w);
+            let resp = search_field(ui, &mut self.browse_query, if self.browse_source == 1 { "Искать на CurseForge" } else { "Искать на Modrinth" }, w);
             if resp.changed() {
                 self.browse_edit_at = now;
             }
@@ -86,7 +110,7 @@ impl App {
         });
 
         // поиск с задержкой после ввода
-        let sig = format!("{}|{}|{}|{:?}|{}", self.browse_query.trim(), self.browse_tab, self.browse_sort, self.browse_target, self.browse_match);
+        let sig = format!("{}|{}|{}|{:?}|{}|{}|{:?}", self.browse_query.trim(), self.browse_tab, self.browse_sort, self.browse_target, self.browse_match, self.browse_source, self.browse_cats);
         if sig != self.browse_sig && now - self.browse_edit_at > 0.35 {
             self.browse_sig = sig;
             self.run_search(now, false);
@@ -119,6 +143,103 @@ impl App {
                     self.run_search(now, true);
                 }
             });
+        }
+        });
+        ui.add_space(20.0);
+        ui.allocate_ui_with_layout(vec2(side_w, 10.0), Layout::top_down(Align::Min), |ui| {
+            ui.set_width(side_w);
+            self.categories_panel(ui);
+        });
+        });
+    }
+
+    fn categories_panel(&mut self, ui: &mut Ui) {
+        let (_, pt) = TYPES[self.browse_tab];
+        let src = if self.browse_source == 1 { "cf" } else { "" };
+        let key = format!("{src}|{pt}");
+        let Some(cats) = self.categories.get(&key).cloned() else {
+            self.categories.insert(key, vec![]);
+            self.be.load_categories(src, pt, self.prefs.cf_key.clone());
+            return;
+        };
+        card_frame().show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                label(ui, "Фильтры", semibold(15.0), TEXT());
+                if !self.browse_cats.is_empty() {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.add(egui::Label::new(egui::RichText::new("Сбросить").font(medium(12.5)).color(accent())).sense(Sense::click())).clicked() {
+                            self.browse_cats.clear();
+                        }
+                    });
+                }
+            });
+            if cats.is_empty() {
+                label(ui, "Загружаю категории…", regular(12.5), TEXT_FAINT());
+                return;
+            }
+            let mut group = String::new();
+            ui.spacing_mut().item_spacing.y = 2.0;
+            for c in &cats {
+                if c.group != group {
+                    group = c.group.clone();
+                    ui.add_space(8.0);
+                    label(ui, group.to_uppercase(), semibold(11.0), TEXT_FAINT());
+                    ui.add_space(2.0);
+                }
+                let mut on = self.browse_cats.contains(&c.id);
+                if checkbox(ui, &mut on, &c.name).changed() {
+                    if on {
+                        self.browse_cats.insert(c.id.clone());
+                    } else {
+                        self.browse_cats.remove(&c.id);
+                    }
+                }
+            }
+        });
+    }
+
+    fn cf_key_panel(&mut self, ui: &mut Ui) {
+        card_frame().show(ui, |ui| {
+            ui.set_width(ui.available_width().min(720.0));
+            ui.spacing_mut().item_spacing.y = 8.0;
+            label(ui, "Нужен ключ CurseForge API", semibold(17.0), TEXT());
+            ui.add(egui::Label::new(egui::RichText::new("CurseForge, в отличие от Modrinth, пускает в каталог только с личным ключом. Он бесплатный: войдите на console.curseforge.com, создайте ключ в разделе «API keys» и вставьте его сюда — он хранится только на этом компьютере.").font(regular(13.5)).color(TEXT_DIM())).wrap());
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.cf_key_edit).hint_text("$2a$10$…").password(true).desired_width(420.0).margin(egui::Margin::symmetric(10, 8)));
+                if button(ui, "Сохранить", None, Kind::Primary, 34.0).clicked() && !self.cf_key_edit.trim().is_empty() {
+                    self.prefs.cf_key = self.cf_key_edit.trim().to_string();
+                    crate::prefs::save(&self.prefs);
+                    self.categories.retain(|k, _| !k.starts_with("cf|"));
+                    self.browse_sig.clear();
+                }
+                if button(ui, "Открыть консоль", Some(Icon::Globe), Kind::Secondary, 34.0).clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab("https://console.curseforge.com/"));
+                }
+            });
+        });
+    }
+
+    /// Установить проект из обзора (кнопка в строке и в окне проекта).
+    pub fn install_hit(&mut self, h: &Hit, now: f64) {
+        let id = h.project_id.clone();
+        if h.project_type == "modpack" {
+            if h.source == "cf" {
+                self.toasts.push(Toast { text: "Сборки с CurseForge пока не ставятся — экспортируйте их как zip и импортируйте через Prism".into(), error: true, born: now });
+                return;
+            }
+            self.installing.insert(id);
+            self.be.install_modpack(h.clone());
+        } else if let Some(t) = self.browse_target.clone() {
+            self.installing.insert(id);
+            if h.source == "cf" {
+                let (gv, loader) = self.inst(&t).map(|i| (i.game_version.clone(), i.loader.clone())).unwrap_or_default();
+                self.be.install_cf(t, h.clone(), gv, loader, self.prefs.cf_key.clone());
+            } else {
+                self.be.install_project(t, h.clone());
+            }
+        } else {
+            self.toasts.push(Toast { text: "Сначала выберите сборку сверху справа".into(), error: false, born: now });
         }
     }
 
@@ -186,26 +307,11 @@ impl App {
             icon(&p, Icon::Download, Rect::from_center_size(pos2(cx + 7.0, br.center().y), Vec2::splat(15.0)), on_accent());
             p.galley(pos2(cx + 22.0, br.center().y - g.size().y / 2.0), g, on_accent());
             if bresp.clicked() {
-                if is_pack {
-                    self.installing.insert(id.clone());
-                    self.be.install_modpack(h.clone());
-                } else if let Some(t) = self.browse_target.clone() {
-                    self.installing.insert(id.clone());
-                    self.be.install_project(t, h.clone());
-                } else {
-                    self.toast(ui, "Сначала выберите сборку сверху справа", Icon::Bell);
-                }
+                self.install_hit(h, Self::now(ui));
             }
         }
         if resp.clicked() {
-            let kind = match h.project_type.as_str() {
-                "modpack" => "modpack",
-                "resourcepack" => "resourcepack",
-                "shader" => "shader",
-                "datapack" => "datapack",
-                _ => "mod",
-            };
-            crate::sys::open(format!("https://modrinth.com/{kind}/{}", h.project_id));
+            self.open_project(h);
         }
     }
 }

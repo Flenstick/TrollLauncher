@@ -48,6 +48,7 @@ pub struct ElyDialog {
     pub user: String,
     pub pass: String,
     pub totp: String,
+    pub show_pass: bool,
 }
 
 #[derive(Default)]
@@ -68,6 +69,9 @@ pub struct SkinTex {
     pub tex: TextureHandle,
     pub h: f32,
 }
+
+/// Номер раздела «Аккаунты» в настройках (для переходов с других страниц).
+pub const ACCOUNTS_SECTION: usize = 4;
 
 pub struct App {
     pub be: Backend,
@@ -143,6 +147,17 @@ pub struct App {
     pub inst_settings: Option<crate::instcfg::SettingsDialog>,
     pub export: Option<crate::instcfg::ExportDialog>,
     pub update: Option<crate::update::UpdateInfo>,
+    pub project_view: Option<crate::modinfo::ProjectView>,
+    pub proj_versions: HashMap<String, Vec<crate::backend::ProjVersion>>,
+    pub categories: HashMap<String, Vec<crate::backend::Category>>,
+    pub browse_cats: std::collections::BTreeSet<String>,
+    /// 0 — Modrinth, 1 — CurseForge
+    pub browse_source: usize,
+    pub cf_key_edit: String,
+    pub java: Option<(Vec<(u32, String, String)>, Vec<(u32, String, String)>)>,
+    pub launcher_dir: Option<String>,
+    pub dir_pending: Option<PathBuf>,
+    skins_checked_for: Vec<uuid::Uuid>,
     /// 0 — нет, 1 — ставится, 2 — поставлено (ждёт перезапуска)
     pub update_stage: u8,
     pub update_dialog: bool,
@@ -240,6 +255,16 @@ impl App {
             inst_settings: None,
             export: None,
             update: None,
+            project_view: None,
+            proj_versions: HashMap::new(),
+            categories: HashMap::new(),
+            browse_cats: Default::default(),
+            browse_source: 0,
+            cf_key_edit: String::new(),
+            java: None,
+            launcher_dir: None,
+            dir_pending: None,
+            skins_checked_for: vec![],
             update_stage: 0,
             update_dialog: false,
             update_error: None,
@@ -462,6 +487,11 @@ impl App {
                         match res {
                             Ok((hits, total)) => {
                                 if self.browse_offset == 0 {
+                                    if std::env::var("TL_DIALOG").as_deref() == Ok("project") && self.project_view.is_none()
+                                        && let Some(h) = hits.get(2)
+                                    {
+                                        self.open_project(&h.clone());
+                                    }
                                     self.hits = hits;
                                 } else {
                                     self.hits.extend(hits);
@@ -474,9 +504,26 @@ impl App {
                     }
                 }
                 Msg::Users(list, def) => {
+                    let new: Vec<Account> = list.iter().filter(|a| !self.skins_checked_for.contains(&a.id)).cloned().collect();
+                    if !new.is_empty() {
+                        self.skins_checked_for.extend(new.iter().map(|a| a.id));
+                        self.be.ensure_account_skins(new);
+                    }
                     self.accounts = list;
                     self.default_user = def;
                 }
+                Msg::ReloadSkins => self.be.load_skins(),
+                Msg::Categories(k, v) => {
+                    self.categories.insert(k, v);
+                }
+                Msg::Versions2(id, v) => {
+                    self.proj_versions.insert(id, v);
+                }
+                Msg::Java(cur, found) => self.java = Some((cur, found)),
+                Msg::JavaReload => self.be.load_java(),
+                Msg::JavaPicked(major, path) => self.be.set_java(major, path),
+                Msg::LauncherDir(d) => self.launcher_dir = d,
+                Msg::LauncherDirPending(p) => self.dir_pending = Some(p),
                 Msg::Skins(items, eq) => {
                     for it in &items {
                         if let Some((w, h, rgba)) = &it.rgba
@@ -556,6 +603,15 @@ impl App {
                     Pick::InstanceIcon(id) => self.be.set_icon(id, path),
                     Pick::NewInstanceIcon => self.create.icon = Some(path),
                     Pick::SkinFile => self.be.add_skin_file(path),
+                    Pick::CatImage => match crate::cats::add_own(&path) {
+                        Ok(id) => {
+                            self.cats = crate::cats::scan();
+                            self.prefs.cat = id;
+                            crate::prefs::save(&self.prefs);
+                            self.toasts.push(Toast { text: "Котик добавлен".into(), error: false, born: now });
+                        }
+                        Err(e) => self.toasts.push(Toast { text: format!("Не удалось добавить котика: {e}"), error: true, born: now }),
+                    },
                 },
                 Msg::Memory(mb) => self.s.ram = mb as f32 / 1024.0,
                 Msg::Perf(p) => self.perf = Some(p),
@@ -644,7 +700,7 @@ impl App {
             && std::path::Path::new(p).exists()
         {
             ui.painter().rect_filled(r, rounding, RAISED());
-            egui::Image::from_uri(format!("file://{p}")).corner_radius(rounding as u8).paint_at(ui, r);
+            egui::Image::from_uri(crate::sys::file_uri(std::path::Path::new(p))).corner_radius(rounding as u8).paint_at(ui, r);
         } else {
             let (seed, hue) = seed_of(&inst.id);
             pixel_icon(ui.painter(), r, seed, hue, rounding);
@@ -720,7 +776,7 @@ impl App {
             self.account_face(ui, hr);
             let tip = self.default_account().map(|a| format!("{} · {}", a.name, if a.elyby { "Ely.by" } else { "Microsoft" })).unwrap_or_else(|| "Войти в аккаунт".into());
             if resp.on_hover_text(tip).clicked() {
-                self.settings_section = 3;
+                self.settings_section = ACCOUNTS_SECTION;
                 self.go(ui, Page::Settings);
             }
             ui.add_space(4.0);
@@ -1029,6 +1085,7 @@ impl App {
 
     fn dialogs(&mut self, ctx: &egui::Context) {
         self.mod_info_dialog(ctx);
+        self.project_dialog(ctx);
         self.inst_dialogs(ctx);
         self.update_dialog_ui(ctx);
         let modal_frame = Frame::new().fill(PANEL()).corner_radius(14).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
@@ -1042,7 +1099,7 @@ impl App {
                     let (r, resp) = ui.allocate_exact_size(Vec2::splat(72.0), Sense::click());
                     let t = hover_anim(ui, resp.id, resp.hovered());
                     if let Some(p) = &self.create.icon {
-                        egui::Image::from_uri(format!("file://{}", p.display())).corner_radius(14).paint_at(ui, r);
+                        egui::Image::from_uri(crate::sys::file_uri(p)).corner_radius(14).paint_at(ui, r);
                     } else {
                         ui.painter().rect_filled(r, 14, RAISED().lerp_to_gamma(HOVER(), t));
                         icon(ui.painter(), Icon::Image, Rect::from_center_size(r.center(), Vec2::splat(26.0)), TEXT_DIM());
@@ -1211,7 +1268,18 @@ impl App {
         label(ui, "Ник или e-mail", semibold(13.0), TEXT_DIM());
         ui.add(egui::TextEdit::singleline(&mut self.ely.user).desired_width(f32::INFINITY).margin(Margin::symmetric(10, 8)));
         label(ui, "Пароль", semibold(13.0), TEXT_DIM());
-        ui.add(egui::TextEdit::singleline(&mut self.ely.pass).password(true).desired_width(f32::INFINITY).margin(Margin::symmetric(10, 8)));
+        ui.horizontal(|ui| {
+            let w = ui.available_width() - 40.0;
+            ui.add(egui::TextEdit::singleline(&mut self.ely.pass).password(!self.ely.show_pass).desired_width(w).margin(Margin::symmetric(10, 8)));
+            let tip = if self.ely.show_pass { "Скрыть пароль" } else { "Показать пароль" };
+            let (r, resp) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
+            let t = hover_anim(ui, resp.id, resp.hovered());
+            ui.painter().rect_filled(r, 8, RAISED().lerp_to_gamma(HOVER(), t));
+            eye_icon(ui.painter(), r.shrink(8.0), if self.ely.show_pass { accent() } else { TEXT_DIM() }, !self.ely.show_pass);
+            if resp.on_hover_text(tip).clicked() {
+                self.ely.show_pass = !self.ely.show_pass;
+            }
+        });
         label(ui, "Код 2FA (если включён)", semibold(13.0), TEXT_DIM());
         ui.add(egui::TextEdit::singleline(&mut self.ely.totp).desired_width(f32::INFINITY).margin(Margin::symmetric(10, 8)));
         ui.add_enabled_ui(!self.login_busy && !self.ely.user.is_empty() && !self.ely.pass.is_empty(), |ui| {

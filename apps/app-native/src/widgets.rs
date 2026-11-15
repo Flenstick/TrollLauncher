@@ -115,6 +115,21 @@ pub enum Icon {
     Image,
 }
 
+/// Глаз (показать пароль); `crossed` — перечёркнутый.
+pub fn eye_icon(p: &Painter, r: Rect, c: Color32, crossed: bool) {
+    let st = Stroke::new(1.6, c);
+    let cx = r.center();
+    let (w, h) = (r.width() * 0.5, r.height() * 0.32);
+    let top: Vec<Pos2> = (0..=16).map(|i| { let t = i as f32 / 16.0 * std::f32::consts::PI; pos2(cx.x - w * t.cos(), cx.y - h * t.sin()) }).collect();
+    let bot: Vec<Pos2> = (0..=16).map(|i| { let t = i as f32 / 16.0 * std::f32::consts::PI; pos2(cx.x - w * t.cos(), cx.y + h * t.sin()) }).collect();
+    p.add(egui::Shape::line(top, st));
+    p.add(egui::Shape::line(bot, st));
+    p.circle_stroke(cx, r.height() * 0.16, st);
+    if crossed {
+        p.line_segment([r.left_top() + vec2(2.0, 2.0), r.right_bottom() - vec2(2.0, 2.0)], st);
+    }
+}
+
 pub fn icon(p: &Painter, ic: Icon, r: Rect, c: Color32) {
     let k = r.width() / 24.0;
     let pt = |x: f32, y: f32| r.min + vec2(x, y) * k;

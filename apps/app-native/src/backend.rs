@@ -6,7 +6,7 @@ use eframe::egui;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use theseus::prelude::*;
 use theseus::data::{ContentType, ResolutionPreferences};
@@ -64,6 +64,7 @@ pub struct ModDetails {
     pub game_versions: Vec<String>,
     pub changelog: String,
     pub team: Vec<String>,
+    pub gallery: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -79,6 +80,34 @@ pub struct Hit {
     pub display_categories: Vec<String>,
     pub date_modified: String,
     pub project_type: String,
+    #[serde(default)]
+    pub slug: Option<String>,
+    /// "" — Modrinth, "cf" — CurseForge
+    #[serde(default)]
+    pub source: String,
+    /// Страница проекта на сайте (для CurseForge)
+    #[serde(default)]
+    pub page_url: String,
+}
+
+/// Категория для фильтра обзора: (id для поиска, название, группа).
+#[derive(Clone, Debug)]
+pub struct Category {
+    pub id: String,
+    pub name: String,
+    pub group: String,
+}
+
+/// Версия проекта для вкладки «Версии».
+#[derive(Clone, Debug)]
+pub struct ProjVersion {
+    pub name: String,
+    pub number: String,
+    pub kind: String,
+    pub loaders: Vec<String>,
+    pub game_versions: Vec<String>,
+    pub date: String,
+    pub downloads: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +159,14 @@ pub enum Msg {
     ExportRoot(String, Vec<crate::instcfg::RootEntry>),
     ExportDone(Result<Option<PathBuf>, String>),
     ElyDone,
+    ReloadSkins,
+    Java(Vec<(u32, String, String)>, Vec<(u32, String, String)>),
+    JavaReload,
+    JavaPicked(u32, PathBuf),
+    LauncherDir(Option<String>),
+    LauncherDirPending(PathBuf),
+    Categories(String, Vec<Category>),
+    Versions2(String, Vec<ProjVersion>),
     Update(Result<Option<crate::update::UpdateInfo>, String>, bool),
     UpdateInstalled(Result<(), String>),
 }
@@ -150,6 +187,7 @@ pub enum Pick {
     InstanceIcon(String),
     NewInstanceIcon,
     SkinFile,
+    CatImage,
 }
 
 // ───────────────────────── backend ─────────────────────────
@@ -443,7 +481,8 @@ impl Backend {
 
     // ── Modrinth
 
-    pub fn search(&self, seq: u64, query: String, project_type: &'static str, version: Option<String>, loader: Option<String>, sort: &'static str, offset: u32) {
+    #[allow(clippy::too_many_arguments)]
+    pub fn search(&self, seq: u64, query: String, project_type: &'static str, version: Option<String>, loader: Option<String>, sort: &'static str, offset: u32, cats: Vec<String>) {
         let http = self.http.clone();
         self.task(move |tx| async move {
             let mut facets = vec![vec![format!("project_type:{project_type}")]];
@@ -454,6 +493,9 @@ impl Backend {
                 && (project_type == "mod" || project_type == "modpack")
             {
                 facets.push(vec![format!("categories:{l}")]);
+            }
+            for c in cats {
+                facets.push(vec![format!("categories:{c}")]);
             }
             let facets = serde_json::to_string(&facets).unwrap_or_default();
             let res = async {
@@ -839,29 +881,228 @@ impl Backend {
         self.load_skins();
     }
 
+    /// Надеть скин: в лаунчере, на Mojang (Microsoft) и в гардероб sfatm во всех сборках с модом.
     pub fn equip_skin(&self, account: Account, skin: SkinItem) {
         self.task(|tx| async move {
-            if account.elyby {
-                let _ = tx.send(Msg::Toast("Для Ely.by скин меняется на сайте ely.by — открываю страницу".into(), false));
-                crate::sys::open("https://ely.by/skins");
-                return;
-            }
-            let variant = if skin.slim { theseus::minecraft_skins::MinecraftSkinVariant::Slim } else { theseus::minecraft_skins::MinecraftSkinVariant::Classic };
             let res = async {
-                theseus::minecraft_skins::add_and_equip_custom_skin(bytes::Bytes::from(skin.png.clone()), variant, None).await.map_err(err)?;
-                theseus::minecraft_skins::flush_pending_skin_change().await.map_err(err)?;
+                if !account.elyby {
+                    let variant = if skin.slim { theseus::minecraft_skins::MinecraftSkinVariant::Slim } else { theseus::minecraft_skins::MinecraftSkinVariant::Classic };
+                    theseus::minecraft_skins::add_and_equip_custom_skin(bytes::Bytes::from(skin.png.clone()), variant, None).await.map_err(err)?;
+                    theseus::minecraft_skins::flush_pending_skin_change().await.map_err(err)?;
+                }
                 theseus::skin_library::set_equipped(account.id.to_string(), skin.id.clone()).await.map_err(err)?;
                 Ok::<(), String>(())
             }
             .await;
-            match res {
-                Ok(()) => {
-                    let _ = tx.send(Msg::Toast(format!("Скин «{}» надет", skin.name), false));
-                }
-                Err(e) => Self::toast_err(&tx, "Не удалось надеть скин", e),
+            if let Err(e) = res {
+                return Self::toast_err(&tx, "Не удалось надеть скин", e);
             }
+            let n = Self::sfatm_put(&skin.png, &skin.name, skin.slim).await;
+            let tail = if n > 0 { format!(" и в гардероб sfatm ({n})") } else { String::new() };
+            let _ = tx.send(Msg::Toast(format!("Скин «{}» надет{tail}", skin.name), false));
         });
         self.load_skins();
+    }
+
+    async fn instance_dirs() -> Vec<PathBuf> {
+        let mut out = vec![];
+        if let Ok(list) = instance::list().await {
+            for m in list {
+                if let Ok(p) = instance::get_full_path(&m.instance.id).await {
+                    out.push(p);
+                }
+            }
+        }
+        out
+    }
+
+    /// Папки игр, где сейчас идёт игра (их гардероб sfatm не трогаем).
+    async fn busy_dirs() -> Vec<PathBuf> {
+        let mut out = vec![];
+        if let Ok(ps) = process::get_all().await {
+            for p in ps {
+                if let Ok(d) = instance::get_full_path(&p.instance_id).await {
+                    out.push(d);
+                }
+            }
+        }
+        #[cfg(target_os = "linux")]
+        for e in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
+            if let Ok(cmd) = std::fs::read(e.path().join("cmdline"))
+                && let Some(i) = cmd.windows(10).position(|w| w == b"--gameDir\0")
+            {
+                let rest = &cmd[i + 10..];
+                let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
+                out.push(PathBuf::from(String::from_utf8_lossy(&rest[..end]).to_string()));
+            }
+        }
+        out
+    }
+
+    /// Записать скин в гардеробы sfatm; возвращает, во сколько сборок.
+    async fn sfatm_put(png: &[u8], name: &str, slim: bool) -> usize {
+        let dirs = crate::sfskin::game_dirs(&Self::instance_dirs().await);
+        let busy = Self::busy_dirs().await;
+        let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+        let busy: Vec<PathBuf> = busy.iter().map(|p| canon(p)).collect();
+        let png = png.to_vec();
+        let name = name.to_string();
+        tokio::task::spawn_blocking(move || {
+            dirs.iter().filter(|d| !busy.contains(&canon(d))).filter(|d| crate::sfskin::put(d, &png, &name, slim).is_ok()).count()
+        })
+        .await
+        .unwrap_or(0)
+    }
+
+    /// Скины из гардеробов sfatm — в библиотеку лаунчера.
+    pub fn import_sfatm_skins(&self) {
+        self.task(|tx| async move {
+            let dirs = crate::sfskin::game_dirs(&Self::instance_dirs().await);
+            let skins = tokio::task::spawn_blocking(move || crate::sfskin::list(&dirs)).await.unwrap_or_default();
+            let before = theseus::skin_library::get().await.map(|l| l.skins.len()).unwrap_or(0);
+            for (png, name, slim) in skins {
+                let v = if slim { theseus::skin_library::LibrarySkinVariant::Slim } else { theseus::skin_library::LibrarySkinVariant::Classic };
+                let _ = theseus::skin_library::add(png, name, Some(v), None, "sfatm".into()).await;
+            }
+            let after = theseus::skin_library::get().await.map(|l| l.skins.len()).unwrap_or(0);
+            let _ = tx.send(Msg::Toast(
+                if after > before { format!("Из гардероба sfatm добавлено скинов: {}", after - before) } else { "Новых скинов в гардеробе sfatm нет".into() },
+                false,
+            ));
+        });
+        self.load_skins();
+    }
+
+    /// У аккаунтов без выбранного скина — подтянуть их текущий скин с Ely.by / Mojang.
+    pub fn ensure_account_skins(&self, accounts: Vec<Account>) {
+        self.task(|tx| async move {
+            let Ok(lib) = theseus::skin_library::get().await else { return };
+            let mut changed = false;
+            for a in accounts {
+                if lib.equipped.contains_key(&a.id.to_string()) {
+                    continue;
+                }
+                let src = if a.elyby { "elyby" } else { "mojang" };
+                let Ok(f) = theseus::skin_library::fetch_by_nick(&a.name, src).await else { continue };
+                if let Ok(s) = theseus::skin_library::add(f.texture.to_vec(), format!("{} (аккаунт)", a.name), Some(f.variant), None, src.into()).await
+                    && theseus::skin_library::set_equipped(a.id.to_string(), s.id).await.is_ok()
+                {
+                    changed = true;
+                }
+            }
+            if changed {
+                let _ = tx.send(Msg::ReloadSkins);
+            }
+        });
+    }
+
+    pub fn remove_skin_confirmed(&self, id: String, name: String) {
+        self.task(|tx| async move {
+            match theseus::skin_library::remove(&id).await {
+                Ok(()) => {
+                    let _ = tx.send(Msg::Toast(format!("Скин «{name}» удалён"), false));
+                }
+                Err(e) => Self::toast_err(&tx, "Не удалось удалить скин", e),
+            }
+            let _ = tx.send(Msg::ReloadSkins);
+        });
+    }
+
+    // ── Java и папка лаунчера
+
+    pub fn load_java(&self) {
+        self.task(|tx| async move {
+            let current: Vec<(u32, String, String)> = jre::get_java_versions()
+                .await
+                .map(|m| m.into_iter().map(|(k, v)| (k, v.path, v.version)).collect())
+                .unwrap_or_default();
+            let found: Vec<(u32, String, String)> = jre::find_filtered_jres(None)
+                .await
+                .map(|v| v.into_iter().map(|j| (j.parsed_version, j.path, j.version)).collect())
+                .unwrap_or_default();
+            let _ = tx.send(Msg::Java(current, found));
+        });
+    }
+
+    pub fn set_java(&self, major: u32, path: PathBuf) {
+        self.task(move |tx| async move {
+            match jre::check_jre(path.clone()).await {
+                Ok(mut j) => {
+                    if j.parsed_version != major {
+                        let _ = tx.send(Msg::Toast(format!("Это Java {}, а нужна Java {major}", j.parsed_version), true));
+                        return;
+                    }
+                    j.parsed_version = major;
+                    match jre::set_java_version(j).await {
+                        Ok(()) => {
+                            let _ = tx.send(Msg::Toast(format!("Java {major}: {}", path.display()), false));
+                        }
+                        Err(e) => Self::toast_err(&tx, "Java", e),
+                    }
+                }
+                Err(e) => Self::toast_err(&tx, "Это не Java", e),
+            }
+        });
+        self.load_java();
+    }
+
+    pub fn install_java(&self, major: u32) {
+        self.task(move |tx| async move {
+            let _ = tx.send(Msg::Toast(format!("Скачиваю Java {major}…"), false));
+            match jre::auto_install_java(major).await {
+                Ok(path) => match jre::check_jre(path.clone()).await {
+                    Ok(j) => {
+                        let _ = jre::set_java_version(j).await;
+                        let _ = tx.send(Msg::Toast(format!("Java {major} скачана"), false));
+                    }
+                    Err(e) => Self::toast_err(&tx, "Java", e),
+                },
+                Err(e) => Self::toast_err(&tx, "Не удалось скачать Java", e),
+            }
+            let _ = tx.send(Msg::JavaReload);
+        });
+    }
+
+    pub fn pick_java(&self, major: u32) {
+        self.task(move |tx| async move {
+            if let Some(f) = rfd::AsyncFileDialog::new().set_title(format!("Java {major}: выберите файл java")).pick_file().await {
+                let _ = tx.send(Msg::JavaPicked(major, f.path().to_path_buf()));
+            }
+        });
+    }
+
+    pub fn current_launcher_dir(&self) {
+        self.task(|tx| async move {
+            if let Ok(s) = settings::get().await {
+                let _ = tx.send(Msg::LauncherDir(s.custom_dir));
+            }
+        });
+    }
+
+    /// Новая папка лаунчера: движок перенесёт всё туда при следующем запуске.
+    pub fn pick_launcher_dir(&self) {
+        self.task(|tx| async move {
+            let Some(f) = rfd::AsyncFileDialog::new().set_title("Новая папка лаунчера").pick_folder().await else { return };
+            let path = f.path().to_path_buf();
+            match settings::get().await {
+                Ok(mut s) => {
+                    if s.custom_dir.as_deref().map(PathBuf::from).is_some_and(|c| c == path) {
+                        return;
+                    }
+                    if s.prev_custom_dir.is_none() {
+                        s.prev_custom_dir = s.custom_dir.clone().or_else(|| Some(crate::prefs::data_dir().display().to_string()));
+                    }
+                    s.custom_dir = Some(path.display().to_string());
+                    match settings::set(s).await {
+                        Ok(()) => {
+                            let _ = tx.send(Msg::LauncherDirPending(path));
+                        }
+                        Err(e) => Self::toast_err(&tx, "Папка лаунчера", e),
+                    }
+                }
+                Err(e) => Self::toast_err(&tx, "Папка лаунчера", e),
+            }
+        });
     }
 
     // ── файлы
@@ -871,6 +1112,7 @@ impl Backend {
             let dlg = rfd::AsyncFileDialog::new();
             let dlg = match what {
                 Pick::SkinFile => dlg.set_title("Выберите скин (PNG 64×64)").add_filter("PNG", &["png"]),
+                Pick::CatImage => dlg.set_title("Свой котик: картинка или GIF").add_filter("Картинки", &["png", "jpg", "jpeg", "gif", "webp"]),
                 _ => dlg.set_title("Выберите картинку").add_filter("Картинки", &["png", "jpg", "jpeg", "webp", "gif"]),
             };
             if let Some(f) = dlg.pick_file().await {
@@ -1001,6 +1243,7 @@ impl Backend {
                     game_versions: arr("game_versions"),
                     changelog,
                     team,
+                    gallery: p.get("gallery").and_then(|g| g.as_array()).map(|a| a.iter().filter_map(|i| i.get("url").and_then(|u| u.as_str()).map(String::from)).collect()).unwrap_or_default(),
                 })
             }
             .await;
@@ -1021,6 +1264,242 @@ impl Backend {
         self.task(move |tx| async move {
             let _ = tx.send(Msg::UpdateInstalled(crate::update::install(&info).await));
         });
+    }
+
+    // ── категории, версии проекта, CurseForge
+
+    /// Категории Modrinth (`source` = "") или CurseForge ("cf") для типа проекта.
+    pub fn load_categories(&self, source: &'static str, project_type: &'static str, cf_key: String) {
+        let http = self.http.clone();
+        self.task(move |tx| async move {
+            let key = format!("{source}|{project_type}");
+            let mut out = vec![];
+            if source == "cf" {
+                if let Ok(r) = http.get("https://api.curseforge.com/v1/categories").query(&[("gameId", "432"), ("classId", &cf_class(project_type).to_string())]).header("x-api-key", cf_key).send().await
+                    && let Ok(v) = r.json::<serde_json::Value>().await
+                {
+                    for c in v.get("data").and_then(|d| d.as_array()).into_iter().flatten() {
+                        let (Some(id), Some(name)) = (c.get("id").and_then(|x| x.as_i64()), c.get("name").and_then(|x| x.as_str())) else { continue };
+                        out.push(Category { id: id.to_string(), name: name.to_string(), group: "Категории".into() });
+                    }
+                    out.sort_by(|a, b| a.name.cmp(&b.name));
+                }
+            } else if let Ok(r) = http.get("https://api.modrinth.com/v2/tag/category").send().await
+                && let Ok(v) = r.json::<serde_json::Value>().await
+            {
+                for c in v.as_array().into_iter().flatten() {
+                    if c.get("project_type").and_then(|x| x.as_str()) != Some(project_type) {
+                        continue;
+                    }
+                    let name = c.get("name").and_then(|x| x.as_str()).unwrap_or_default().to_string();
+                    let header = c.get("header").and_then(|x| x.as_str()).unwrap_or("categories");
+                    out.push(Category { id: name.clone(), name: crate::modinfo::category_ru(&name), group: crate::modinfo::category_group_ru(header) });
+                }
+                out.sort_by(|a, b| a.group.cmp(&b.group).then(a.name.cmp(&b.name)));
+            }
+            let _ = tx.send(Msg::Categories(key, out));
+        });
+    }
+
+    pub fn load_versions_of(&self, project_id: String) {
+        let http = self.http.clone();
+        self.task(move |tx| async move {
+            let mut out = vec![];
+            if let Ok(r) = http.get(format!("https://api.modrinth.com/v2/project/{project_id}/version")).send().await
+                && let Ok(v) = r.json::<serde_json::Value>().await
+            {
+                for x in v.as_array().into_iter().flatten().take(60) {
+                    let st = |k: &str| x.get(k).and_then(|y| y.as_str()).unwrap_or_default().to_string();
+                    let arr = |k: &str| x.get(k).and_then(|y| y.as_array()).map(|a| a.iter().filter_map(|i| i.as_str().map(String::from)).collect()).unwrap_or_default();
+                    out.push(ProjVersion { name: st("name"), number: st("version_number"), kind: st("version_type"), loaders: arr("loaders"), game_versions: arr("game_versions"), date: st("date_published"), downloads: x.get("downloads").and_then(|d| d.as_u64()).unwrap_or(0) });
+                }
+            }
+            let _ = tx.send(Msg::Versions2(project_id, out));
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn search_cf(&self, seq: u64, query: String, project_type: &'static str, version: Option<String>, loader: Option<String>, sort: &'static str, offset: u32, cats: Vec<String>, key: String) {
+        let http = self.http.clone();
+        self.task(move |tx| async move {
+            let res = async {
+                let sort_field = match sort {
+                    "downloads" => "6",
+                    "updated" => "3",
+                    "newest" => "11",
+                    _ => "2",
+                };
+                let mut q: Vec<(&str, String)> = vec![
+                    ("gameId", "432".into()),
+                    ("classId", cf_class(project_type).to_string()),
+                    ("searchFilter", query.clone()),
+                    ("sortField", sort_field.into()),
+                    ("sortOrder", "desc".into()),
+                    ("pageSize", "20".into()),
+                    ("index", offset.to_string()),
+                ];
+                if let Some(v) = version {
+                    q.push(("gameVersion", v));
+                }
+                if let Some(l) = loader.as_deref().and_then(cf_loader)
+                    && (project_type == "mod" || project_type == "modpack")
+                {
+                    q.push(("modLoaderType", l.to_string()));
+                }
+                if !cats.is_empty() {
+                    q.push(("categoryIds", format!("[{}]", cats.join(","))));
+                }
+                let r = http.get("https://api.curseforge.com/v1/mods/search").query(&q).header("x-api-key", key).send().await.map_err(err)?;
+                if r.status() == reqwest::StatusCode::FORBIDDEN || r.status() == reqwest::StatusCode::UNAUTHORIZED {
+                    return Err("CurseForge не принял ключ API — проверьте его в поле выше".to_string());
+                }
+                let v: serde_json::Value = r.error_for_status().map_err(err)?.json().await.map_err(err)?;
+                let total = v.pointer("/pagination/totalCount").and_then(|x| x.as_u64()).unwrap_or(0).min(10_000);
+                let hits = v.get("data").and_then(|d| d.as_array()).into_iter().flatten().map(|m| cf_hit(m, project_type)).collect();
+                Ok::<_, String>((hits, total))
+            }
+            .await;
+            let _ = tx.send(Msg::Search(seq, res));
+        });
+    }
+
+    /// Описание проекта CurseForge (HTML → упрощённый Markdown).
+    pub fn load_cf_details(&self, hit: Hit, key: String) {
+        let http = self.http.clone();
+        self.task(move |tx| async move {
+            let id = hit.project_id.trim_start_matches("cf:").to_string();
+            let res = async {
+                let m: serde_json::Value = http.get(format!("https://api.curseforge.com/v1/mods/{id}")).header("x-api-key", &key).send().await.map_err(err)?.error_for_status().map_err(err)?.json().await.map_err(err)?;
+                let d: serde_json::Value = http.get(format!("https://api.curseforge.com/v1/mods/{id}/description")).header("x-api-key", &key).send().await.map_err(err)?.error_for_status().map_err(err)?.json().await.map_err(err)?;
+                let m = m.get("data").cloned().unwrap_or_default();
+                let mut links = vec![];
+                for (k, name) in [("sourceUrl", "Исходный код"), ("issuesUrl", "Баг-трекер"), ("wikiUrl", "Вики")] {
+                    if let Some(u) = m.pointer(&format!("/links/{k}")).and_then(|x| x.as_str()).filter(|u| !u.is_empty()) {
+                        links.push((name, u.to_string()));
+                    }
+                }
+                Ok::<_, String>(ModDetails {
+                    description: hit.description.clone(),
+                    body: crate::modinfo::html_to_md(d.get("data").and_then(|x| x.as_str()).unwrap_or_default()),
+                    downloads: hit.downloads,
+                    followers: hit.follows,
+                    updated: hit.date_modified.clone(),
+                    links,
+                    gallery: m.get("screenshots").and_then(|s| s.as_array()).map(|a| a.iter().filter_map(|i| i.get("url").and_then(|u| u.as_str()).map(String::from)).collect()).unwrap_or_default(),
+                    team: m.get("authors").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|x| x.get("name").and_then(|n| n.as_str()).map(String::from)).collect()).unwrap_or_default(),
+                    ..Default::default()
+                })
+            }
+            .await;
+            let _ = tx.send(Msg::ModDetails(hit.project_id.clone(), res));
+        });
+    }
+
+    /// Поставить проект CurseForge в сборку: подходящий файл + обязательные зависимости.
+    pub fn install_cf(&self, instance_id: String, hit: Hit, game_version: String, loader: String, key: String) {
+        let http = self.http.clone();
+        self.task(move |tx| async move {
+            let res = async {
+                let dir = instance::get_full_path(&instance_id).await.map_err(err)?;
+                let folder = match hit.project_type.as_str() {
+                    "resourcepack" => "resourcepacks",
+                    "shader" => "shaderpacks",
+                    "datapack" => "datapacks",
+                    _ => "mods",
+                };
+                let mut queue = vec![(hit.project_id.trim_start_matches("cf:").to_string(), folder)];
+                let mut done = std::collections::HashSet::new();
+                let mut first = true;
+                while let Some((id, folder)) = queue.pop() {
+                    if !done.insert(id.clone()) {
+                        continue;
+                    }
+                    let mut q = vec![("pageSize", "50".to_string())];
+                    if folder != "resourcepacks" && folder != "shaderpacks" {
+                        q.push(("gameVersion", game_version.clone()));
+                        if let Some(l) = cf_loader(&loader.to_lowercase()).filter(|_| folder == "mods") {
+                            q.push(("modLoaderType", l.to_string()));
+                        }
+                    }
+                    let v: serde_json::Value = http.get(format!("https://api.curseforge.com/v1/mods/{id}/files")).query(&q).header("x-api-key", &key).send().await.map_err(err)?.error_for_status().map_err(err)?.json().await.map_err(err)?;
+                    let mut files: Vec<serde_json::Value> = v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+                    files.sort_by(|a, b| b.get("fileDate").and_then(|x| x.as_str()).cmp(&a.get("fileDate").and_then(|x| x.as_str())));
+                    let Some(f) = files.first() else {
+                        if first {
+                            return Err(format!("нет файла под {loader} {game_version}"));
+                        }
+                        continue;
+                    };
+                    let name = f.get("fileName").and_then(|x| x.as_str()).unwrap_or("mod.jar").replace(['/', '\\'], "_");
+                    let Some(url) = f.get("downloadUrl").and_then(|x| x.as_str()) else {
+                        if first {
+                            crate::sys::open(&hit.page_url);
+                            return Err("автор запретил скачивание из сторонних лаунчеров — открываю страницу, скачайте вручную".into());
+                        }
+                        continue;
+                    };
+                    let bytes = http.get(url).send().await.map_err(err)?.error_for_status().map_err(err)?.bytes().await.map_err(err)?;
+                    tokio::fs::create_dir_all(dir.join(folder)).await.map_err(err)?;
+                    tokio::fs::write(dir.join(folder).join(&name), &bytes).await.map_err(err)?;
+                    for dep in f.get("dependencies").and_then(|d| d.as_array()).into_iter().flatten() {
+                        if dep.get("relationType").and_then(|x| x.as_i64()) == Some(3)
+                            && let Some(m) = dep.get("modId").and_then(|x| x.as_i64())
+                        {
+                            queue.push((m.to_string(), "mods"));
+                        }
+                    }
+                    first = false;
+                }
+                Ok::<_, String>(())
+            }
+            .await;
+            match res {
+                Ok(()) => {
+                    let _ = tx.send(Msg::Toast(format!("{} установлен", hit.title), false));
+                }
+                Err(e) => Self::toast_err(&tx, &format!("Не удалось поставить {}", hit.title), e),
+            }
+            let _ = tx.send(Msg::InstallDone(hit.project_id.clone()));
+        });
+    }
+}
+
+fn cf_class(project_type: &str) -> u32 {
+    match project_type {
+        "modpack" => 4471,
+        "resourcepack" => 12,
+        "shader" => 6552,
+        "datapack" => 6945,
+        _ => 6,
+    }
+}
+
+fn cf_loader(l: &str) -> Option<u32> {
+    match l {
+        "forge" => Some(1),
+        "fabric" => Some(4),
+        "quilt" => Some(5),
+        "neoforge" => Some(6),
+        _ => None,
+    }
+}
+
+fn cf_hit(m: &serde_json::Value, project_type: &str) -> Hit {
+    let st = |p: &str| m.pointer(p).and_then(|x| x.as_str()).unwrap_or_default().to_string();
+    Hit {
+        project_id: format!("cf:{}", m.get("id").and_then(|x| x.as_i64()).unwrap_or(0)),
+        title: st("/name"),
+        description: st("/summary"),
+        author: st("/authors/0/name"),
+        downloads: m.get("downloadCount").and_then(|x| x.as_f64()).unwrap_or(0.0) as u64,
+        follows: m.get("thumbsUpCount").and_then(|x| x.as_u64()).unwrap_or(0),
+        icon_url: Some(st("/logo/thumbnailUrl")).filter(|s| !s.is_empty()),
+        display_categories: m.get("categories").and_then(|c| c.as_array()).map(|a| a.iter().filter_map(|c| c.get("name").and_then(|n| n.as_str()).map(String::from)).collect()).unwrap_or_default(),
+        date_modified: st("/dateModified"),
+        project_type: project_type.to_string(),
+        slug: Some(st("/slug")),
+        source: "cf".into(),
+        page_url: st("/links/websiteUrl"),
     }
 }
 

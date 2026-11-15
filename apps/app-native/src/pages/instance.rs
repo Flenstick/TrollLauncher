@@ -276,7 +276,7 @@ impl App {
                     let (r, resp) = ui.allocate_exact_size(vec2(cw, cw * 9.0 / 16.0), Sense::click());
                     let t = hover_anim(ui, resp.id, resp.hovered());
                     ui.painter().rect_filled(r, 10, RAISED());
-                    egui::Image::from_uri(format!("file://{}", path.display())).corner_radius(10).paint_at(ui, r.shrink(2.0 - t * 2.0));
+                    egui::Image::from_uri(crate::sys::file_uri(path)).corner_radius(10).paint_at(ui, r.shrink(2.0 - t * 2.0));
                     let name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
                     let cap = Rect::from_min_max(pos2(r.left(), r.bottom() - 26.0), r.max);
                     ui.painter().rect_filled(cap, egui::CornerRadius { nw: 0, ne: 0, sw: 10, se: 10 }, Color32::from_black_alpha((80.0 + 90.0 * t) as u8));

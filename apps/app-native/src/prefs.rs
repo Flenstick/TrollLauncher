@@ -18,6 +18,8 @@ pub struct Prefs {
     pub cat_opacity: u8,
     /// индекс в cats::FITS
     pub cat_fit: usize,
+    /// Ключ CurseForge API (console.curseforge.com) — для обзора CurseForge
+    pub cf_key: String,
 }
 
 impl Default for Prefs {
@@ -30,6 +32,7 @@ impl Default for Prefs {
             cat: "kitteh".into(),
             cat_opacity: 100,
             cat_fit: 0,
+            cf_key: String::new(),
         }
     }
 }

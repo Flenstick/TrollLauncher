@@ -36,6 +36,22 @@ pub const NONE_ID: &str = "none";
 pub fn own_dir() -> PathBuf {
     crate::prefs::data_dir().join("catpacks")
 }
+/// Скопировать картинку в свои котики; возвращает id набора (имя файла без расширения).
+pub fn add_own(src: &Path) -> std::io::Result<String> {
+    let dir = own_dir();
+    std::fs::create_dir_all(&dir)?;
+    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
+    let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("cat").to_string();
+    let mut name = stem.clone();
+    let mut n = 2;
+    while BUILTIN.iter().any(|(id, _)| *id == name) || dir.join(format!("{name}.{ext}")).exists() {
+        name = format!("{stem}-{n}");
+        n += 1;
+    }
+    std::fs::copy(src, dir.join(format!("{name}.{ext}")))?;
+    Ok(name)
+}
+
 fn prism_dir() -> PathBuf {
     crate::prefs::xdg_data().join("PrismLauncher/catpacks")
 }
@@ -143,7 +159,7 @@ fn date(y: i32, m: u32, d: u32) -> NaiveDate {
 }
 
 fn file_uri(p: &Path) -> String {
-    format!("file://{}", p.display())
+    crate::sys::file_uri(p)
 }
 
 impl CatPack {

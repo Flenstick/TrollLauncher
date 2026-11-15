@@ -77,7 +77,7 @@ impl App {
                                     self.be.equip_skin(a, s.clone());
                                 }
                             } else if button(ui, "Войти", Some(Icon::User), Kind::Primary, 36.0).clicked() {
-                                self.settings_section = 3;
+                                self.settings_section = ACCOUNTS_SECTION;
                                 self.go(ui, Page::Settings);
                             }
                             let resp = button(ui, "", Some(Icon::Star), if s.favorite { Kind::Primary } else { Kind::Secondary }, 36.0);
@@ -87,7 +87,7 @@ impl App {
                             let more = button(ui, "", Some(Icon::More), Kind::Secondary, 36.0);
                             egui::Popup::menu(&more).show(|ui| {
                                 if ui.button(egui::RichText::new("Удалить скин").color(lighten(DANGER(), 0.2))).clicked() {
-                                    self.be.remove_skin(s.id.clone());
+                                    self.be.remove_skin_confirmed(s.id.clone(), s.name.clone());
                                 }
                             });
                         });
@@ -109,6 +109,9 @@ impl App {
                         }
                         if button(ui, "По нику", Some(Icon::User), Kind::Secondary, 34.0).clicked() {
                             self.nick.open = true;
+                        }
+                        if button(ui, "Из sfatm", Some(Icon::Download), Kind::Secondary, 34.0).on_hover_text("Забрать скины из гардероба мода sfatm в сборках").clicked() {
+                            self.be.import_sfatm_skins();
                         }
                     });
                 });
@@ -151,6 +154,22 @@ impl App {
                             if resp.clicked() {
                                 pick = Some(s.id.clone());
                             }
+                            egui::Popup::context_menu(&resp).show(|ui| {
+                                ui.set_min_width(170.0);
+                                if let Some(a) = acc.clone()
+                                    && equipped_id.as_deref() != Some(&s.id)
+                                    && ui.button("Надеть").clicked()
+                                {
+                                    self.be.equip_skin(a, s.clone());
+                                }
+                                if ui.button(if s.favorite { "Убрать из избранного" } else { "В избранное" }).clicked() {
+                                    self.be.update_skin(s.id.clone(), None, Some(!s.favorite), None);
+                                }
+                                ui.separator();
+                                if ui.button(egui::RichText::new("Удалить").color(lighten(DANGER(), 0.2))).clicked() {
+                                    self.be.remove_skin_confirmed(s.id.clone(), s.name.clone());
+                                }
+                            });
                             if resp.double_clicked()
                                 && let Some(a) = acc.clone()
                             {

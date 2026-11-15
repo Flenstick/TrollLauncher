@@ -14881,7 +14881,7 @@ dependencies = [
 
 [[package]]
 name = "trolllauncher-native"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "bytes",
  "chrono",

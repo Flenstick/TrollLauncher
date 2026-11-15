@@ -5,7 +5,7 @@ use crate::app::*;
 use crate::backend::{ContentRow, ModDetails};
 use crate::theme::*;
 use crate::widgets::*;
-use eframe::egui::{self, Align, FontId, Id, Layout, Margin, Rect, Sense, Stroke, TextFormat, Ui, Vec2, text::LayoutJob, vec2};
+use eframe::egui::{self, Align, Color32, FontId, Id, Layout, Margin, Rect, Sense, Stroke, TextFormat, Ui, Vec2, text::LayoutJob, vec2};
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 pub struct ModInfoView {
@@ -452,6 +452,271 @@ impl App {
         });
         if close || r.should_close() {
             self.mod_info = None;
+        }
+    }
+}
+
+/// Русские названия категорий Modrinth (остальные — как есть, с заглавной).
+pub fn category_ru(id: &str) -> String {
+    let ru = match id {
+        "adventure" => "Приключения", "cursed" => "Проклятое", "decoration" => "Декор", "economy" => "Экономика",
+        "equipment" => "Снаряжение", "food" => "Еда", "game-mechanics" => "Механики игры", "library" => "Библиотеки",
+        "magic" => "Магия", "management" => "Управление", "minigame" => "Мини-игры", "mobs" => "Мобы",
+        "optimization" => "Оптимизация", "social" => "Общение", "storage" => "Хранение", "technology" => "Технологии",
+        "transportation" => "Транспорт", "utility" => "Утилиты", "worldgen" => "Генерация мира", "challenging" => "Сложное",
+        "combat" => "Бой", "kitchen-sink" => "Всё подряд", "lightweight" => "Лёгкое", "multiplayer" => "Мультиплеер",
+        "quests" => "Квесты", "atmosphere" => "Атмосфера", "bloom" => "Свечение", "cartoon" => "Мультяшное",
+        "colored-lighting" => "Цветной свет", "fantasy" => "Фэнтези", "foliage" => "Листва", "high" => "Высокая",
+        "low" => "Низкая", "medium" => "Средняя", "path-tracing" => "Трассировка путей", "pbr" => "PBR",
+        "potato" => "Картошка", "realistic" => "Реализм", "reflections" => "Отражения", "screenshot" => "Для скриншотов",
+        "semi-realistic" => "Полуреализм", "shadows" => "Тени", "vanilla-like" => "Как ванилла", "audio" => "Звук",
+        "blocks" => "Блоки", "core-shaders" => "Core-шейдеры", "entities" => "Сущности", "environment" => "Окружение",
+        "items" => "Предметы", "fonts" => "Шрифты", "gui" => "Интерфейс", "locale" => "Перевод",
+        "models" => "Модели", "simplistic" => "Простое", "themed" => "Тематическое", "tweaks" => "Твики",
+        "8x-" => "8x и меньше", "16x" => "16x", "32x" => "32x", "48x" => "48x", "64x" => "64x", "128x" => "128x",
+        "256x" => "256x", "512x+" => "512x и больше", "modded" => "Для модов", "iris" => "Iris", "optifine" => "OptiFine",
+        "canvas" => "Canvas", "vanilla" => "Ванилла",
+        _ => "",
+    };
+    if !ru.is_empty() {
+        return ru.to_string();
+    }
+    let mut c = id.replace('-', " ");
+    if let Some(f) = c.get(..1) {
+        c = f.to_uppercase() + &c[1..];
+    }
+    c
+}
+
+pub fn category_group_ru(header: &str) -> String {
+    match header {
+        "categories" => "Категории",
+        "features" => "Особенности",
+        "resolutions" => "Разрешение",
+        "performance impact" => "Нагрузка",
+        other => other,
+    }
+    .to_string()
+}
+
+/// Очень простой HTML → Markdown для описаний CurseForge: абзацы, списки, заголовки, картинки.
+pub fn html_to_md(html: &str) -> String {
+    let mut out = String::new();
+    let mut i = 0;
+    let b = html.as_bytes();
+    while i < b.len() {
+        if b[i] == b'<' {
+            let end = html[i..].find('>').map(|e| i + e + 1).unwrap_or(b.len());
+            let tag = html[i..end].to_ascii_lowercase();
+            let name: String = tag.trim_start_matches(['<', '/']).chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+            let closing = tag.starts_with("</");
+            match name.as_str() {
+                "br" => out.push('\n'),
+                "p" | "div" => out.push_str("\n\n"),
+                "li" if !closing => out.push_str("\n- "),
+                "h1" | "h2" | "h3" | "h4" if !closing => out.push_str(&format!("\n\n{} ", "#".repeat(name[1..].parse::<usize>().unwrap_or(2).min(3)))),
+                "h1" | "h2" | "h3" | "h4" => out.push_str("\n\n"),
+                "strong" | "b" => out.push_str("**"),
+                "img" => {
+                    let raw = &html[i..end];
+                    if let Some(sp) = raw.find("src=\"") {
+                        let rest = &raw[sp + 5..];
+                        if let Some(e) = rest.find('"') {
+                            out.push_str(&format!("\n\n![]({})\n\n", &rest[..e]));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            i = end;
+        } else {
+            let next = html[i..].find('<').map(|n| i + n).unwrap_or(b.len());
+            out.push_str(&html[i..next].replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'"));
+            i = next;
+        }
+    }
+    let mut cleaned = String::new();
+    let mut blank = 0;
+    for line in out.lines() {
+        if line.trim().is_empty() {
+            blank += 1;
+            if blank <= 1 {
+                cleaned.push('\n');
+            }
+        } else {
+            blank = 0;
+            cleaned.push_str(line.trim_end());
+            cleaned.push('\n');
+        }
+    }
+    cleaned
+}
+
+/// Окно проекта из обзора (Modrinth или CurseForge).
+pub struct ProjectView {
+    pub hit: crate::backend::Hit,
+    pub tab: usize,
+}
+
+impl App {
+    pub fn open_project(&mut self, hit: &crate::backend::Hit) {
+        self.project_view = Some(ProjectView { hit: hit.clone(), tab: 0 });
+        if !self.mod_details.contains_key(&hit.project_id) {
+            if hit.source == "cf" {
+                self.be.load_cf_details(hit.clone(), self.prefs.cf_key.clone());
+            } else {
+                self.be.load_mod_details(hit.project_id.clone(), None);
+            }
+        }
+    }
+
+    pub fn project_dialog(&mut self, ctx: &egui::Context) {
+        let Some(view) = &self.project_view else { return };
+        let h = view.hit.clone();
+        let details = self.mod_details.get(&h.project_id).cloned();
+        let screen = ctx.content_rect();
+        let mut close = false;
+        let frame = egui::Frame::new().fill(PANEL()).corner_radius(14).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
+        let site = if h.source == "cf" { "CurseForge" } else { "Modrinth" };
+        let r = egui::Modal::new(Id::new("project")).frame(frame).show(ctx, |ui| {
+            ui.set_width(820.0f32.min(screen.width() - 80.0));
+            ui.spacing_mut().item_spacing.y = 10.0;
+            ui.horizontal(|ui| {
+                let (ir, _) = ui.allocate_exact_size(Vec2::splat(80.0), Sense::hover());
+                ui.painter().rect_filled(ir, 16, RAISED());
+                if let Some(u) = h.icon_url.as_ref().filter(|u| !u.is_empty()) {
+                    egui::Image::from_uri(u.clone()).corner_radius(16).paint_at(ui, ir);
+                }
+                ui.add_space(6.0);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 4.0;
+                    ui.set_max_width(ui.available_width() - 50.0);
+                    ui.add(egui::Label::new(egui::RichText::new(&h.title).font(bold(23.0)).color(TEXT())).wrap());
+                    let team = details.as_ref().and_then(|d| d.as_ref().ok()).filter(|d| d.team.len() > 1).map(|d| d.team.join(", ")).unwrap_or_else(|| h.author.clone());
+                    label(ui, format!("от {team} · {site}"), regular(13.0), TEXT_DIM());
+                    ui.add(egui::Label::new(egui::RichText::new(&h.description).font(regular(14.0)).color(TEXT_DIM())).wrap());
+                });
+                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                    if icon_button(ui, Icon::Close, 32.0, "Закрыть").clicked() {
+                        close = true;
+                    }
+                });
+            });
+            let updated = h.date_modified.get(..10).unwrap_or("").split('-').rev().collect::<Vec<_>>().join(".");
+            let side = details.as_ref().and_then(|d| d.as_ref().ok()).filter(|d| !d.client_side.is_empty()).map(|d| format!("{} / {}", side_name(&d.client_side), side_name(&d.server_side)));
+            let mut stats = vec![("Скачиваний", short_num(h.downloads)), (if h.source == "cf" { "Лайков" } else { "Подписчиков" }, short_num(h.follows)), ("Обновлён", updated)];
+            if let Some(sd) = side {
+                stats.push(("Клиент / сервер", sd));
+            }
+            let n = stats.len();
+            ui.columns(n, |c| {
+                for (i, (k, v)) in stats.iter().enumerate() {
+                    egui::Frame::new().fill(RAISED()).corner_radius(10).inner_margin(Margin::symmetric(12, 8)).show(&mut c[i], |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.spacing_mut().item_spacing.y = 1.0;
+                        label(ui, v.clone(), semibold(15.0), TEXT());
+                        label(ui, *k, regular(12.0), TEXT_DIM());
+                    });
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                let installing = self.installing.contains(&h.project_id);
+                let installed = self.installed.contains(&h.project_id);
+                let is_pack = h.project_type == "modpack";
+                if installing {
+                    button(ui, "Установка…", Some(Icon::Download), Kind::Secondary, 36.0);
+                } else if installed && !is_pack {
+                    button(ui, "Установлен", Some(Icon::Check), Kind::Secondary, 36.0);
+                } else if button(ui, "Установить", Some(Icon::Download), Kind::Primary, 36.0).clicked() {
+                    self.install_hit(&h, Self::now(ui));
+                }
+                let url = if h.source == "cf" { h.page_url.clone() } else { format!("https://modrinth.com/{}/{}", if h.project_type == "shader" { "shader" } else { h.project_type.as_str() }, h.slug.clone().unwrap_or(h.project_id.clone())) };
+                if button(ui, site, Some(Icon::Globe), Kind::Secondary, 36.0).clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                }
+                if let Some(Ok(d)) = &details {
+                    for (name, url) in &d.links {
+                        if chip(ui, &format!("↗ {name}"), accent().gamma_multiply(0.12), accent()).interact(Sense::click()).on_hover_text(url).clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        }
+                    }
+                }
+            });
+            let mut labels = vec!["Описание".to_string()];
+            let has_gallery = details.as_ref().and_then(|d| d.as_ref().ok()).is_some_and(|d| !d.gallery.is_empty());
+            if has_gallery {
+                labels.push("Галерея".into());
+            }
+            if h.source != "cf" {
+                labels.push("Версии".into());
+            }
+            let mut tab = self.project_view.as_ref().map(|v| v.tab).unwrap_or(0).min(labels.len() - 1);
+            if tabs(ui, Id::new("proj-tabs"), &labels, &mut tab) && labels[tab] == "Версии" && !self.proj_versions.contains_key(&h.project_id) {
+                self.be.load_versions_of(h.project_id.clone());
+            }
+            if let Some(v) = self.project_view.as_mut() {
+                v.tab = tab;
+            }
+            let used = ui.min_rect().height();
+            let hgt = (screen.height() * 0.88 - used - 60.0).max(160.0);
+            egui::ScrollArea::vertical().id_salt(("proj", &h.project_id, tab)).max_height(hgt).min_scrolled_height(hgt).auto_shrink([false, true]).show(ui, |ui| {
+                ui.set_width(ui.available_width() - 8.0);
+                match (labels[tab].as_str(), &details) {
+                    (_, None) => {
+                        ui.add_space(20.0);
+                        ui.vertical_centered(|ui| label(ui, "Загружаю…", medium(14.0), TEXT_DIM()));
+                    }
+                    (_, Some(Err(e))) => {
+                        label(ui, format!("Не удалось загрузить: {e}"), regular(13.0), lighten(DANGER(), 0.3));
+                    }
+                    ("Галерея", Some(Ok(d))) => {
+                        let w = ui.available_width();
+                        for url in &d.gallery {
+                            ui.add(egui::Image::from_uri(url.clone()).max_width(w).corner_radius(10));
+                        }
+                    }
+                    ("Версии", _) => match self.proj_versions.get(&h.project_id) {
+                        None => {
+                            label(ui, "Загружаю версии…", regular(13.0), TEXT_DIM());
+                        }
+                        Some(list) => {
+                            for v in list {
+                                egui::Frame::new().fill(RAISED()).corner_radius(10).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        let (kc, kt) = match v.kind.as_str() {
+                                            "beta" => (Color32::from_rgb(230, 170, 60), "бета"),
+                                            "alpha" => (DANGER(), "альфа"),
+                                            _ => (GREEN(), "релиз"),
+                                        };
+                                        chip(ui, kt, kc.gamma_multiply(0.18), kc);
+                                        ui.add(egui::Label::new(egui::RichText::new(&v.name).font(semibold(13.5)).color(TEXT())).truncate());
+                                    });
+                                    let gv = match (v.game_versions.first(), v.game_versions.last()) {
+                                        (Some(a), Some(b)) if a != b => format!("{a} … {b}"),
+                                        (Some(a), _) => a.clone(),
+                                        _ => String::new(),
+                                    };
+                                    label(ui, format!("{} · {} · {} · {} скач. · {}", v.number, v.loaders.join(", "), gv, short_num(v.downloads), v.date.get(..10).unwrap_or("")), regular(12.5), TEXT_DIM());
+                                });
+                            }
+                        }
+                    },
+                    (_, Some(Ok(d))) => {
+                        let key = format!("{}#p", h.project_id);
+                        if !self.md_cache.contains_key(&key) {
+                            let blocks = if d.body.trim().is_empty() { vec![Blk::Text(LayoutJob::simple_singleline("Описания нет".into(), regular(14.0), TEXT_FAINT()))] } else { parse_md(&d.body) };
+                            self.md_cache.insert(key.clone(), blocks);
+                        }
+                        let blocks = self.md_cache.get(&key).cloned().unwrap_or_default();
+                        md_view(ui, &blocks);
+                    }
+                }
+            });
+        });
+        if close || r.should_close() {
+            self.project_view = None;
         }
     }
 }

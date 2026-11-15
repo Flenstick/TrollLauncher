@@ -5,6 +5,16 @@ use std::path::PathBuf;
 
 /// Открыть папку, файл или ссылку в программе по умолчанию.
 pub fn open(target: impl AsRef<OsStr>) {
+    // explorer не понимает длинные ссылки с & и пробелами (вход Ely.by) и открывает «Документы»
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let t = target.as_ref().to_string_lossy();
+        if t.starts_with("http://") || t.starts_with("https://") {
+            let _ = std::process::Command::new("rundll32").arg("url.dll,FileProtocolHandler").arg(target.as_ref()).creation_flags(CREATE_NO_WINDOW).spawn();
+            return;
+        }
+    }
     #[cfg(windows)]
     let cmd = "explorer";
     #[cfg(target_os = "macos")]
@@ -18,6 +28,11 @@ pub fn open(target: impl AsRef<OsStr>) {
 /// Совпадает с тем, где движок держит TrollLauncher, и с папкой Prism Launcher.
 pub fn data_root() -> PathBuf {
     dirs::data_dir().unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".local/share"))
+}
+
+/// `file://`-ссылка на локальный файл для картинок egui (на Windows — с прямыми слэшами).
+pub fn file_uri(p: &std::path::Path) -> String {
+    format!("file://{}", p.display().to_string().replace('\\', "/"))
 }
 
 /// Флаг «без окна консоли» для служебных процессов на Windows.

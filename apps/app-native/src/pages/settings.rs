@@ -4,13 +4,15 @@ use crate::theme::*;
 use crate::widgets::*;
 use eframe::egui::{self, Align, Align2, Id, Layout, Rect, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
 
-const SECTIONS: [(Icon, &str); 5] = [
+const SECTIONS: [(Icon, &str); 6] = [
     (Icon::Image, "Внешний вид"),
     (Icon::Cube, "Производительность"),
+    (Icon::Play, "Java"),
     (Icon::Folder, "Папки"),
     (Icon::User, "Аккаунты"),
     (Icon::Globe, "О лаунчере"),
 ];
+
 
 impl App {
     pub fn page_settings(&mut self, ui: &mut Ui) {
@@ -31,8 +33,11 @@ impl App {
                     text_at(ui.painter(), pos2(r.left() + 40.0, r.center().y), Align2::LEFT_CENTER, *name, if active { semibold(14.0) } else { medium(14.0) }, col);
                     if resp.clicked() {
                         self.settings_section = i;
-                        if i == 3 {
-                            self.be.load_users();
+                        match i {
+                            2 => self.be.load_java(),
+                            3 => self.be.current_launcher_dir(),
+                            ACCOUNTS_SECTION => self.be.load_users(),
+                            _ => {}
                         }
                     }
                 }
@@ -45,8 +50,9 @@ impl App {
                 match self.settings_section {
                     0 => self.set_appearance(ui),
                     1 => self.set_perf(ui),
-                    2 => self.set_folders(ui),
-                    3 => self.set_accounts(ui),
+                    2 => self.set_java(ui),
+                    3 => self.set_folders(ui),
+                    ACCOUNTS_SECTION => self.set_accounts(ui),
                     _ => self.set_about(ui),
                 }
             });
@@ -137,6 +143,9 @@ impl App {
         });
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
+            if button(ui, "Свой котик…", Some(Icon::Plus), Kind::Primary, 32.0).clicked() {
+                self.be.pick(crate::backend::Pick::CatImage);
+            }
             if button(ui, "Открыть папку", Some(Icon::Folder), Kind::Secondary, 32.0).clicked() {
                 let d = crate::cats::own_dir();
                 let _ = std::fs::create_dir_all(&d);
@@ -150,7 +159,7 @@ impl App {
                 self.toast(ui, format!("Наборов котиков: {n}"), Icon::Refresh);
             }
         });
-        label(ui, "Свои котики: картинки, GIF или папки в этой папке. Котики из Prism Launcher подхватываются сами.", regular(12.5), TEXT_FAINT());
+        label(ui, "«Свой котик…» — выбрать картинку или GIF. Можно и папкой с картинками в папке котиков; котики из Prism подхватываются сами.", regular(12.5), TEXT_FAINT());
         ui.add_space(6.0);
         if self.prefs.cat != crate::cats::NONE_ID {
             setting_row(ui, "Прозрачность котика", "100 % — непрозрачный", |ui| {
@@ -249,13 +258,70 @@ impl App {
         }
     }
 
+    fn set_java(&mut self, ui: &mut Ui) {
+        label(ui, "Какой Java запускать игру. Новым версиям Minecraft нужна Java 21, 1.17–1.20.4 — Java 17, старым — Java 8. Если Java не выбрана, лаунчер скачает её сам при запуске.", regular(13.0), TEXT_DIM());
+        ui.add_space(8.0);
+        let Some((cur, found)) = self.java.clone() else {
+            self.be.load_java();
+            label(ui, "Ищу Java на компьютере…", regular(13.0), TEXT_DIM());
+            return;
+        };
+        for major in [21u32, 17, 8] {
+            let current = cur.iter().find(|(m, _, _)| *m == major);
+            let desc = match current {
+                Some((_, path, ver)) => format!("{ver} · {path}"),
+                None => "Не выбрана — скачается сама при первом запуске".to_string(),
+            };
+            setting_row(ui, &format!("Java {major}"), &desc, |ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                if button(ui, "Файл…", Some(Icon::Folder), Kind::Secondary, 32.0).on_hover_text("Указать java вручную").clicked() {
+                    self.be.pick_java(major);
+                }
+                if button(ui, "Скачать", Some(Icon::Download), Kind::Secondary, 32.0).on_hover_text("Скачать Java от Adoptium/Azul").clicked() {
+                    self.be.install_java(major);
+                }
+                let options: Vec<&(u32, String, String)> = found.iter().filter(|(m, _, _)| *m == major).collect();
+                if !options.is_empty() {
+                    let sel = current.map(|(_, p, _)| p.clone()).unwrap_or_else(|| "выбрать…".into());
+                    let short = |p: &str| if p.chars().count() > 34 { format!("…{}", p.chars().rev().take(33).collect::<Vec<_>>().into_iter().rev().collect::<String>()) } else { p.to_string() };
+                    egui::ComboBox::from_id_salt(("java", major)).selected_text(short(&sel)).width(240.0).show_ui(ui, |ui| {
+                        for (_, path, ver) in options {
+                            if ui.selectable_label(current.is_some_and(|(_, p, _)| p == path), format!("{ver} — {path}")).clicked() {
+                                self.be.set_java(major, std::path::PathBuf::from(path));
+                            }
+                        }
+                    });
+                }
+            });
+        }
+        ui.add_space(6.0);
+        if button(ui, "Найти Java заново", Some(Icon::Refresh), Kind::Secondary, 32.0).clicked() {
+            self.java = None;
+        }
+        label(ui, "Для отдельной сборки Java можно выбрать в её настройках (меню «⋯» → «Настройки сборки» → «Java и память»).", regular(12.5), TEXT_FAINT());
+    }
+
     fn set_folders(&mut self, ui: &mut Ui) {
-        let base = dirs_base();
+        let base = self.launcher_dir.clone().map(std::path::PathBuf::from).unwrap_or_else(dirs_base);
         setting_row(ui, "Папка лаунчера", &base.display().to_string(), |ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            if button(ui, "Сменить…", Some(Icon::Folder), Kind::Primary, 32.0).on_hover_text("Перенести сборки, миры и настройки в другую папку").clicked() {
+                self.be.pick_launcher_dir();
+            }
             if button(ui, "Открыть", Some(Icon::Folder), Kind::Secondary, 32.0).clicked() {
                 crate::sys::open(&base);
             }
         });
+        if let Some(p) = self.dir_pending.clone() {
+            egui::Frame::new().fill(accent().gamma_multiply(0.12)).corner_radius(10).inner_margin(12).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.add(egui::Label::new(egui::RichText::new(format!("Папка поменяется на {} при следующем запуске: лаунчер перенесёт туда сборки, миры, скины и настройки. Это может занять пару минут.", p.display())).font(regular(13.0)).color(TEXT())).wrap());
+                ui.add_space(6.0);
+                if button(ui, "Перезапустить сейчас", Some(Icon::Refresh), Kind::Primary, 32.0).clicked() {
+                    crate::update::restart();
+                }
+            });
+        }
         let inst = base.join("profiles");
         setting_row(ui, "Сборки", &inst.display().to_string(), |ui| {
             if button(ui, "Открыть", Some(Icon::Folder), Kind::Secondary, 32.0).clicked() {

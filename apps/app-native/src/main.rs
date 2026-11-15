@@ -12,6 +12,7 @@ mod msa;
 mod pages;
 mod prefs;
 mod selftest;
+mod sfskin;
 mod skin3d;
 mod sys;
 mod theme;
