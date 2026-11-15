@@ -18,12 +18,24 @@ mod sys;
 mod theme;
 mod update;
 mod widgets;
+#[cfg(windows)]
+mod winstall;
 
 use eframe::egui;
 
 fn main() -> eframe::Result {
     update::wait_previous();
     let args: Vec<String> = std::env::args().collect();
+    #[cfg(windows)]
+    {
+        if args.get(1).map(String::as_str) == Some("--uninstall") {
+            winstall::uninstall();
+            return Ok(());
+        }
+        if args.len() == 1 && winstall::ensure_installed() {
+            return Ok(());
+        }
+    }
     if args.get(1).map(String::as_str) == Some("--msa-login") {
         msa::run(args.get(2).map(String::as_str).unwrap_or_default());
     }

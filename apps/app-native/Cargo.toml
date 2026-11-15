@@ -1,6 +1,6 @@
 [package]
 name = "trolllauncher-native"
-version = "2.0.2"
+version = "2.0.3"
 edition.workspace = true
 description = "TrollLauncher — нативный интерфейс на Rust (egui) поверх движка theseus"
 
@@ -31,6 +31,9 @@ pulldown-cmark = { workspace = true }
 zip = { workspace = true }
 sha2 = { workspace = true }
 dirs = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+mslnk = "0.1"
 
 [build-dependencies]
 winresource = "0.1"

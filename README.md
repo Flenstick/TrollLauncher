@@ -114,6 +114,8 @@ Inter, Golos Text, системный или любой установленны
 
 **Windows 10 и 11** — скачай [TrollLauncher-windows-x86_64.exe](https://github.com/Flenstick/TrollLauncher/releases/latest/download/TrollLauncher-windows-x86_64.exe)
 и запусти. Если SmartScreen предупредит о неизвестном издателе — «Подробнее» → «Выполнить в любом случае».
+При первом запуске лаунчер сам установится в `%LOCALAPPDATA%\Programs\TrollLauncher`, появится в «Пуске», на рабочем столе
+и в «Параметры → Приложения» (оттуда же удаляется); скачанный файл после этого можно удалить.
 
 **Linux (x86_64)** — одна команда в терминале:
 
