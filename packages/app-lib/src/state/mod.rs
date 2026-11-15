@@ -29,6 +29,7 @@ mod settings;
 pub use self::settings::*;
 
 pub mod performance;
+pub mod sfatm_update;
 pub use self::performance::{JvmPreset, PerformanceSettings, PerformanceTools};
 
 mod onboarding_checklist;

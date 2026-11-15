@@ -30,6 +30,8 @@ pub struct PerformanceSettings {
     pub mangohud: bool,
     /// Frontend-only: pause launcher animations while a game is running.
     pub pause_ui_while_playing: bool,
+    /// Обновлять наш мод sfatm перед запуском (см. `sfatm_update`).
+    pub sfatm_autoupdate: bool,
 }
 
 impl Default for PerformanceSettings {
@@ -40,6 +42,7 @@ impl Default for PerformanceSettings {
             gamemode: true,
             mangohud: false,
             pause_ui_while_playing: true,
+            sfatm_autoupdate: true,
         }
     }
 }

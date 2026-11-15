@@ -19,6 +19,26 @@ pub enum QuickPlayType {
     Server(ServerAddress),
 }
 
+/// Обновить наш мод sfatm в сборке, если вышла новая версия (ошибки не мешают запуску).
+pub async fn sfatm_update(
+    instance_id: &str,
+) -> crate::Result<Option<crate::state::sfatm_update::Updated>> {
+    let state = State::get().await?;
+    let dir = super::get_full_path(instance_id).await?;
+    match crate::state::sfatm_update::update(&dir).await {
+        Ok(Some(u)) => {
+            info!("sfatm обновлён: {} → {}", u.from, u.to);
+            crate::state::instances::commands::sync_content_files(instance_id, &state).await?;
+            Ok(Some(u))
+        }
+        Ok(None) => Ok(None),
+        Err(e) => {
+            warn!("Автообновление sfatm не удалось: {e}");
+            Err(e)
+        }
+    }
+}
+
 #[tracing::instrument]
 pub async fn run(
     instance_id: &str,
@@ -45,6 +65,9 @@ pub async fn run(
             false,
         )
         .await?;
+    }
+    if crate::state::PerformanceSettings::get().await.sfatm_autoupdate {
+        let _ = sfatm_update(instance_id).await;
     }
     super::shared::check_shared_instance_availability_before_launch(
         instance_id,

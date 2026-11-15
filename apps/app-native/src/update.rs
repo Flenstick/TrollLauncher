@@ -1,0 +1,181 @@
+//! Автообновление TrollLauncher с GitHub-релизов (Flenstick/TrollLauncher).
+//!
+//! Тот же формат, что у старой Tauri-версии: в релизе лежат `trolllauncher-<ver>-x86_64.tar.gz`
+//! и `.tar.gz.sha256`. Архив проверяется по sha256, потом ставится так же, как стоит текущая копия:
+//! - пакет pacman (`trolllauncher-bin`) — makepkg по PKGBUILD из тега релиза и `pkexec pacman -U`;
+//! - иначе исполняемый файл подменяется на месте (rename работает и у запущенной программы).
+//!
+//! `TROLLLAUNCHER_PRETEND_VERSION=1.0.0` — притвориться старой версией для проверки.
+
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use tokio::process::Command;
+
+const REPO: &str = "Flenstick/TrollLauncher";
+const PACKAGE: &str = "trolllauncher-bin";
+
+#[derive(Clone, Debug)]
+pub struct UpdateInfo {
+    pub current: String,
+    pub version: String,
+    pub notes: String,
+    pub critical: bool,
+    tarball_url: String,
+    checksum_url: String,
+}
+
+#[derive(Deserialize)]
+struct Release {
+    tag_name: String,
+    #[serde(default)]
+    body: String,
+    #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    prerelease: bool,
+    assets: Vec<Asset>,
+}
+
+#[derive(Deserialize)]
+struct Asset {
+    name: String,
+    browser_download_url: String,
+}
+
+fn client() -> reqwest::Client {
+    reqwest::Client::builder().user_agent(concat!("TrollLauncher/", env!("CARGO_PKG_VERSION"))).build().expect("http")
+}
+
+fn parse_version(v: &str) -> Option<Vec<u64>> {
+    let v = v.trim().trim_start_matches('v');
+    let parts: Vec<u64> = v.split(['.', '-', '+']).take(3).map(|p| p.parse().ok()).collect::<Option<_>>()?;
+    (parts.len() == 3).then_some(parts)
+}
+
+pub fn current_version() -> String {
+    std::env::var("TROLLLAUNCHER_PRETEND_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string())
+}
+
+/// Новый релиз или `None`, если стоит последняя версия.
+pub async fn check() -> Result<Option<UpdateInfo>, String> {
+    let current = current_version();
+    let release: Release = client()
+        .get(format!("https://api.github.com/repos/{REPO}/releases/latest"))
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+    if release.draft || release.prerelease {
+        return Ok(None);
+    }
+    let version = release.tag_name.trim_start_matches('v').to_owned();
+    let (Some(latest), Some(installed)) = (parse_version(&version), parse_version(&current)) else { return Ok(None) };
+    if latest <= installed {
+        return Ok(None);
+    }
+    let tarball = format!("trolllauncher-{version}-x86_64.tar.gz");
+    let find = |name: &str| release.assets.iter().find(|a| a.name == name).map(|a| a.browser_download_url.clone());
+    let (Some(tarball_url), Some(checksum_url)) = (find(&tarball), find(&format!("{tarball}.sha256"))) else { return Ok(None) };
+    // первая строка описания — картинка-обложка, её в лаунчере не показываем
+    let notes = release.body.replace("[critical]", "").lines().filter(|l| !l.trim_start().starts_with("![")).collect::<Vec<_>>().join("\n").trim().to_owned();
+    Ok(Some(UpdateInfo { current, critical: release.body.contains("[critical]"), notes, version, tarball_url, checksum_url }))
+}
+
+async fn download(url: &str) -> Result<Vec<u8>, String> {
+    Ok(client().get(url).send().await.map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?.to_vec())
+}
+
+async fn run(cmd: &mut Command, what: &str) -> Result<(), String> {
+    let out = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).output().await.map_err(|e| format!("{what}: {e}"))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let err = String::from_utf8_lossy(&out.stderr);
+    let tail: Vec<&str> = err.lines().rev().take(6).collect();
+    Err(format!("{what} завершился с ошибкой ({}):\n{}", out.status, tail.into_iter().rev().collect::<Vec<_>>().join("\n")))
+}
+
+async fn owned_by_pacman(exe: &Path) -> bool {
+    Command::new("pacman")
+        .arg("-Qqo")
+        .arg(exe)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .await
+        .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == PACKAGE)
+}
+
+fn find_package(dir: &Path) -> Option<PathBuf> {
+    std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(PACKAGE) && n.contains(".pkg.tar")))
+}
+
+/// Скачать, проверить и поставить. Новая версия запустится после `restart()`.
+pub async fn install(info: &UpdateInfo) -> Result<(), String> {
+    let tarball = download(&info.tarball_url).await?;
+    let expected = String::from_utf8_lossy(&download(&info.checksum_url).await?).split_whitespace().next().unwrap_or_default().to_lowercase();
+    let actual = format!("{:x}", Sha256::digest(&tarball));
+    if expected.len() != 64 || actual != expected {
+        return Err("контрольная сумма архива не совпала, обновление отменено".into());
+    }
+    let work = std::env::temp_dir().join(format!("trolllauncher-update-{}", std::process::id()));
+    let _ = tokio::fs::remove_dir_all(&work).await;
+    tokio::fs::create_dir_all(&work).await.map_err(|e| e.to_string())?;
+    let name = format!("trolllauncher-{}-x86_64.tar.gz", info.version);
+    tokio::fs::write(work.join(&name), &tarball).await.map_err(|e| e.to_string())?;
+
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+    let res = async {
+        if owned_by_pacman(&exe).await {
+            let pkgbuild = download(&format!("https://raw.githubusercontent.com/{REPO}/v{}/packaging/arch/PKGBUILD", info.version)).await?;
+            tokio::fs::write(work.join("PKGBUILD"), pkgbuild).await.map_err(|e| e.to_string())?;
+            run(Command::new("makepkg").args(["-f", "--noconfirm", "--nodeps"]).env("SRCDEST", &work).current_dir(&work), "makepkg").await?;
+            let pkg = find_package(&work).ok_or("makepkg не создал пакет")?;
+            return run(Command::new("pkexec").args(["pacman", "-U", "--noconfirm"]).arg(&pkg), "pacman").await;
+        }
+        run(Command::new("tar").arg("-xzf").arg(work.join(&name)).arg("-C").arg(&work), "tar").await?;
+        let new_bin = work.join(format!("trolllauncher-{}-x86_64", info.version)).join("trolllauncher");
+        let staged = exe.with_extension("update");
+        tokio::fs::copy(&new_bin, &staged).await.map_err(|e| format!("нет доступа к {}: {e}", exe.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).await.map_err(|e| e.to_string())?;
+        }
+        tokio::fs::rename(&staged, &exe).await.map_err(|e| e.to_string())
+    }
+    .await;
+    let _ = tokio::fs::remove_dir_all(&work).await;
+    res
+}
+
+/// Перезапустить лаунчер новой версией. Движок держит блокировку папки, поэтому новая копия
+/// стартует только после выхода этой (ждёт её через `kill -0`).
+pub fn restart() -> ! {
+    if let Ok(exe) = std::env::current_exe() {
+        // после подмены файла /proc/self/exe указывает на «… (deleted)» — берём путь без суффикса
+        let path = exe.to_string_lossy().trim_end_matches(" (deleted)").to_string();
+        let script = format!("while kill -0 {} 2>/dev/null; do sleep 0.2; done; exec \"$0\"", std::process::id());
+        let _ = std::process::Command::new("sh").arg("-c").arg(script).arg(path).stdin(Stdio::null()).spawn();
+    }
+    std::process::exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn versions() {
+        assert!(parse_version("2.0.1") > parse_version("2.0.0"));
+        assert!(parse_version("v2.0.0") > parse_version("1.1.1"));
+        assert_eq!(parse_version("1.2"), None);
+    }
+}

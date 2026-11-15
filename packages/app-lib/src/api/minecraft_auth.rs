@@ -71,6 +71,23 @@ pub async fn elyby_login(
     Ok(credentials)
 }
 
+/// Ключи OAuth-приложения Ely.by (если настроены) — для входа через браузер.
+pub fn elyby_oauth_client() -> Option<crate::state::elyby::OAuthClient> {
+    crate::state::elyby::oauth_client()
+}
+
+pub fn elyby_oauth_start(client: &crate::state::elyby::OAuthClient, redirect_uri: &str) -> crate::state::elyby::OAuthStart {
+    crate::state::elyby::oauth_start(client, redirect_uri)
+}
+
+/// Завершает вход через браузер: код из redirect → аккаунт Ely.by.
+pub async fn elyby_login_oauth(code: &str, start: &crate::state::elyby::OAuthStart) -> crate::Result<Credentials> {
+    let state = State::get().await?;
+    let credentials = crate::state::elyby::login_oauth(code, start, &state.pool).await?;
+    let _ = crate::onboarding_checklist::mark_logged_into_minecraft().await;
+    Ok(credentials)
+}
+
 #[tracing::instrument]
 pub async fn get_default_user() -> crate::Result<Option<uuid::Uuid>> {
     let state = State::get().await?;

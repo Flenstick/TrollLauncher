@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "apps/app",
+  "apps/app-native",
   "apps/app-playground",
   "apps/daedalus_client",
   "apps/labrinth",
@@ -329,6 +330,13 @@ opt-level = "s"  # Optimize for binary size
 strip = true  # Remove debug symbols
 lto = true  # Enables link to optimizations
 panic = "abort"  # Strip expensive panic clean-up logic
+
+# Нативный TrollLauncher (egui): быстрее собирается, чем полный release
+[profile.native]
+inherits = "release"
+opt-level = 3
+lto = "thin"
+panic = "unwind"
 
 [profile.test]
 inherits = "dev"

@@ -195,8 +195,183 @@ pub async fn forget_account(
     Ok(())
 }
 
+// ───────────── OAuth2: вход через браузер ─────────────
+//
+// Приложение типа «Настольное приложение» на https://account.ely.by/dev/applications:
+// публичный клиент, без секрета, с PKCE (S256); redirect — любой порт на 127.0.0.1 (RFC 8252).
+// Client ID: константа ELYBY_CLIENT_ID ниже, переменная окружения ELYBY_CLIENT_ID при сборке
+// или запуске, либо `elyby-oauth.json` в папке лаунчера ({"client_id": "..."}).
+// Для старых «веб»-приложений можно указать client_secret и redirect_uri.
+// У таких аккаунтов в `refresh_token` лежит `oauth:<refresh token>`.
+
+const OAUTH_AUTHORIZE: &str = "https://account.ely.by/oauth2/v1";
+const OAUTH_TOKEN: &str = "https://account.ely.by/api/oauth2/v1/token";
+const OAUTH_INFO: &str = "https://account.ely.by/api/account/v1/info";
+const OAUTH_SCOPE: &str = "account_info minecraft_server_session offline_access";
+const OAUTH_PREFIX: &str = "oauth:";
+/// Client ID настольного приложения TrollLauncher на Ely.by (публичный, не секрет).
+const ELYBY_CLIENT_ID: &str = "trolllauncher";
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct OAuthClient {
+    pub client_id: String,
+    #[serde(default)]
+    pub client_secret: String,
+    /// Задан только для «веб»-приложений; у настольного redirect выбирается сам.
+    #[serde(default)]
+    pub redirect_uri: Option<String>,
+}
+
+/// Ключи OAuth-приложения Ely.by, если они настроены.
+pub fn oauth_client() -> Option<OAuthClient> {
+    if let Some(dirs) = crate::state::DirectoryInfo::global_handle_if_ready()
+        && let Ok(bytes) = std::fs::read(dirs.settings_dir.join("elyby-oauth.json"))
+        && let Ok(c) = serde_json::from_slice::<OAuthClient>(&bytes)
+        && !c.client_id.is_empty()
+    {
+        return Some(c);
+    }
+    let id = std::env::var("ELYBY_CLIENT_ID")
+        .ok()
+        .or(option_env!("ELYBY_CLIENT_ID").map(String::from))
+        .or(Some(ELYBY_CLIENT_ID.to_owned()))
+        .filter(|id| !id.is_empty())?;
+    let secret = std::env::var("ELYBY_CLIENT_SECRET").ok().or(option_env!("ELYBY_CLIENT_SECRET").map(String::from)).unwrap_or_default();
+    Some(OAuthClient { client_id: id, client_secret: secret, redirect_uri: std::env::var("ELYBY_REDIRECT_URI").ok() })
+}
+
+/// Начатый вход: ссылка для браузера + то, что нужно, чтобы его завершить.
+#[derive(Clone, Debug)]
+pub struct OAuthStart {
+    pub url: String,
+    pub state: String,
+    pub redirect_uri: String,
+    pub verifier: String,
+}
+
+/// PKCE: случайный verifier и S256-challenge (RFC 7636).
+fn pkce() -> (String, String) {
+    use base64::Engine;
+    use rand::RngCore;
+    let mut raw = [0u8; 48];
+    rand::thread_rng().fill_bytes(&mut raw);
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let verifier = b64.encode(raw);
+    let challenge = b64.encode(Sha256::digest(verifier.as_bytes()));
+    (verifier, challenge)
+}
+
+/// `redirect_uri` — адрес, который слушает лаунчер (например http://127.0.0.1:PORT/ely).
+pub fn oauth_start(client: &OAuthClient, redirect_uri: &str) -> OAuthStart {
+    let (verifier, challenge) = pkce();
+    let state = Uuid::new_v4().simple().to_string();
+    let mut url = Url::parse(OAUTH_AUTHORIZE).expect("valid url");
+    url.query_pairs_mut()
+        .append_pair("client_id", &client.client_id)
+        .append_pair("redirect_uri", redirect_uri)
+        .append_pair("response_type", "code")
+        .append_pair("scope", OAUTH_SCOPE)
+        .append_pair("state", &state)
+        .append_pair("code_challenge", &challenge)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("description", "TrollLauncher");
+    OAuthStart { url: url.to_string(), state, redirect_uri: redirect_uri.to_owned(), verifier }
+}
+
+#[derive(Deserialize)]
+struct OAuthToken {
+    access_token: String,
+    #[serde(default)]
+    refresh_token: Option<String>,
+    #[serde(default)]
+    expires_in: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct OAuthInfo {
+    uuid: String,
+    username: String,
+}
+
+async fn oauth_token(client: &OAuthClient, form: &[(&str, &str)]) -> crate::Result<OAuthToken> {
+    let mut form: Vec<(&str, &str)> = form.to_vec();
+    form.push(("client_id", client.client_id.as_str()));
+    if !client.client_secret.is_empty() {
+        form.push(("client_secret", client.client_secret.as_str()));
+    }
+    let response = REQWEST_CLIENT
+        .post(OAUTH_TOKEN)
+        .form(&form)
+        .timeout(std::time::Duration::from_secs(20))
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(ErrorKind::OtherError(format!("Ely.by OAuth: {status} {text}")).into());
+    }
+    Ok(response.json::<OAuthToken>().await?)
+}
+
+/// Меняет код из браузера на токены и сохраняет аккаунт.
+#[tracing::instrument(skip_all)]
+pub async fn login_oauth(code: &str, start: &OAuthStart, pool: &sqlx::SqlitePool) -> crate::Result<Credentials> {
+    let client = oauth_client().ok_or_else(|| ErrorKind::OtherError("Ely.by OAuth не настроен".to_owned()))?;
+    let token = oauth_token(
+        &client,
+        &[
+            ("redirect_uri", start.redirect_uri.as_str()),
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("code_verifier", start.verifier.as_str()),
+        ],
+    )
+    .await?;
+    let refresh = token.refresh_token.clone().ok_or_else(|| ErrorKind::OtherError("Ely.by не выдал refresh token".to_owned()))?;
+    let info = REQWEST_CLIENT
+        .get(OAUTH_INFO)
+        .bearer_auth(&token.access_token)
+        .timeout(std::time::Duration::from_secs(20))
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<OAuthInfo>()
+        .await?;
+    let id = Uuid::parse_str(&info.uuid).map_err(|_| ErrorKind::OtherError("Ely.by вернул неверный UUID".to_owned()))?;
+    let stored = format!("{OAUTH_PREFIX}{refresh}");
+    sqlx::query(
+        "INSERT INTO elyby_accounts (uuid, client_token) VALUES ($1, $2)
+         ON CONFLICT (uuid) DO UPDATE SET client_token = $2",
+    )
+    .bind(id.as_hyphenated().to_string())
+    .bind(&stored)
+    .execute(pool)
+    .await?;
+    let credentials = Credentials {
+        offline_profile: MinecraftProfile { id, name: info.username, ..MinecraftProfile::default() },
+        access_token: token.access_token,
+        refresh_token: stored,
+        expires: Utc::now() + Duration::seconds(token.expires_in.unwrap_or(86_400).clamp(600, 86_400 * 7) - 300),
+        active: true,
+        provider: AccountProvider::ElyBy,
+    };
+    credentials.upsert(pool).await?;
+    Ok(credentials)
+}
+
+async fn refresh_oauth(credentials: &mut Credentials, refresh: &str) -> crate::Result<()> {
+    let client = oauth_client().ok_or_else(|| ErrorKind::OtherError("Ely.by OAuth не настроен — войди в аккаунт заново".to_owned()))?;
+    let token = oauth_token(&client, &[("scope", OAUTH_SCOPE), ("refresh_token", refresh), ("grant_type", "refresh_token")]).await?;
+    credentials.access_token = token.access_token;
+    credentials.expires = Utc::now() + Duration::seconds(token.expires_in.unwrap_or(86_400).clamp(600, 86_400 * 7) - 300);
+    Ok(())
+}
+
 /// Refreshes an Ely.by access token; the client token is kept in `refresh_token`.
 pub async fn refresh(credentials: &mut Credentials) -> crate::Result<()> {
+    if let Some(r) = credentials.refresh_token.strip_prefix(OAUTH_PREFIX).map(str::to_owned) {
+        return refresh_oauth(credentials, &r).await;
+    }
     let response = post(
         "/auth/refresh",
         json!({
@@ -218,6 +393,9 @@ pub async fn refresh(credentials: &mut Credentials) -> crate::Result<()> {
 
 /// Revokes the access token on Ely.by; failures are ignored because the account is removed anyway.
 pub async fn invalidate(credentials: &Credentials) {
+    if credentials.refresh_token.starts_with(OAUTH_PREFIX) {
+        return;
+    }
     let _ = post(
         "/auth/invalidate",
         json!({

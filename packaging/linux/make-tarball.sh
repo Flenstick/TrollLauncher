@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Packs the release binary into the tarball that the Arch package downloads.
-# Usage: packaging/linux/make-tarball.sh [output-dir]   (run after `pnpm tauri build --no-bundle` in apps/app)
+# Usage: packaging/linux/make-tarball.sh [output-dir]   (run after `apps/app-native/install.sh` — Rust version, 2.0+)
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/apps/app/Cargo.toml" | head -n1)"
+version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/apps/app-native/Cargo.toml" | head -n1)"
 out="${1:-$root/target/dist}"
 name="trolllauncher-$version-x86_64"
 stage="$(mktemp -d)"
@@ -12,7 +12,7 @@ trap 'rm -rf "$stage"' EXIT
 
 dir="$stage/$name"
 mkdir -p "$dir/icons"
-install -Dm755 "$root/target/release/trolllauncher" "$dir/trolllauncher"
+install -Dm755 "$root/target/native/trolllauncher-rs" "$dir/trolllauncher"
 install -Dm644 "$root/packaging/linux/trolllauncher.desktop" "$dir/trolllauncher.desktop"
 install -Dm644 "$root/packaging/linux/trolllauncher.svg" "$dir/icons/trolllauncher.svg"
 cp "$root"/packaging/linux/icons/*.png "$dir/icons/"
@@ -20,4 +20,4 @@ install -Dm644 "$root/apps/app/LICENSE" "$dir/LICENSE"
 
 mkdir -p "$out"
 tar -C "$stage" -czf "$out/$name.tar.gz" "$name"
-sha256sum "$out/$name.tar.gz"
+(cd "$out" && sha256sum "$name.tar.gz" | tee "$name.tar.gz.sha256")

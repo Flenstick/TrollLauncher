@@ -17,6 +17,8 @@ pub mod install;
 mod launcher;
 mod logger;
 mod state;
+/// Автообновление нашего мода sfatm (для лаунчеров и проверки из командной строки).
+pub use state::sfatm_update;
 
 pub use api::*;
 pub use error::*;

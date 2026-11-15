@@ -1,18 +1,21 @@
 # Maintainer: Flenstick <https://github.com/Flenstick>
 pkgname=trolllauncher-bin
-pkgver=1.1.1
+pkgver=2.0.0
 pkgrel=1
 pkgdesc='Minecraft launcher with modpacks, mods, themes and Ely.by login'
 arch=('x86_64')
 url='https://github.com/Flenstick/TrollLauncher'
 license=('GPL-3.0-only')
-depends=('webkit2gtk-4.1' 'gtk3' 'libsoup3' 'libayatana-appindicator' 'dbus' 'openssl' 'hicolor-icon-theme')
-optdepends=('xdg-utils: opening links and folders')
+depends=('webkit2gtk-4.1' 'gtk3' 'libsoup3' 'dbus' 'xdg-utils' 'hicolor-icon-theme')
+optdepends=('vulkan-icd-loader: GPU rendering through Vulkan (otherwise OpenGL)'
+            'xdg-desktop-portal: file dialogs'
+            'gamemode: Feral GameMode for games'
+            'mangohud: FPS overlay in games')
 provides=('trolllauncher')
 conflicts=('trolllauncher')
 options=('!strip' '!debug')
 source=("$url/releases/download/v$pkgver/trolllauncher-$pkgver-x86_64.tar.gz")
-sha256sums=('43beb6fdd5464eab30f114fc8f72980cb68d965ba44eb5cec1d007f3c85aa772')
+sha256sums=('9f7d49d3eb24b333f633e983558a80f7bf06f40c3ac7466ebd19db900420e545')
 
 package() {
 	cd "trolllauncher-$pkgver-x86_64"
