@@ -140,6 +140,35 @@ pub struct MMCLauncher {
     instance_dir: String,
 }
 
+fn find_mmc_icon(
+    base: &Path,
+    instance: &Path,
+    key: Option<&str>,
+) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(key) = key.filter(|key| {
+        !key.is_empty()
+            && !key.contains('\\')
+            && Path::new(key).components().count() == 1
+            && Path::new(key)
+                .components()
+                .all(|part| matches!(part, std::path::Component::Normal(_)))
+    }) {
+        for directory in [
+            base.join("icons"),
+            instance.join("icons"),
+            instance.to_path_buf(),
+        ] {
+            candidates.push(directory.join(key));
+            if Path::new(key).extension().is_none() {
+                candidates.push(directory.join(format!("{key}.png")));
+            }
+        }
+    }
+    candidates.push(instance.join("icon.png"));
+    candidates.into_iter().find(|path| path.is_file())
+}
+
 // Checks if if its a folder, and the folder contains instance.cfg and mmc-pack.json, and they both parse
 #[tracing::instrument]
 pub async fn is_valid_mmc(instance_folder: PathBuf) -> bool {
@@ -197,12 +226,13 @@ pub async fn import_mmc(
     let instance_cfg =
         load_instance_cfg(&mmc_instance_path.join("instance.cfg")).await?;
 
-    // Re-cache icon
-    let icon = if let Some(icon_key) = instance_cfg.icon_key {
-        let icon_path = mmc_base_path.join("icons").join(icon_key);
-        import::recache_icon(icon_path).await?
-    } else {
-        None
+    let icon = match find_mmc_icon(
+        &mmc_base_path,
+        &mmc_instance_path,
+        instance_cfg.icon_key.as_deref(),
+    ) {
+        Some(path) => import::recache_icon(path).await?,
+        None => None,
     };
 
     // Create description from instance.cfg
@@ -335,4 +365,41 @@ async fn import_mmc_unmanaged(
     )
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod icon_tests {
+    use super::*;
+    #[test]
+    fn resolves_named_launcher_icons_with_png_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let instance = dir.path().join("instances/example");
+        std::fs::create_dir_all(&instance).unwrap();
+        std::fs::create_dir(dir.path().join("icons")).unwrap();
+        let expected = dir.path().join("icons/custom.png");
+        std::fs::write(&expected, b"icon").unwrap();
+        assert_eq!(
+            find_mmc_icon(dir.path(), &instance, Some("custom")),
+            Some(expected)
+        );
+    }
+    #[test]
+    fn resolves_archive_icon_and_rejects_traversal_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let instance = dir.path().join("instances/imported");
+        std::fs::create_dir_all(&instance).unwrap();
+        let icon = instance.join("icon.png");
+        std::fs::write(&icon, b"icon").unwrap();
+        assert_eq!(
+            find_mmc_icon(dir.path(), &instance, Some("default")),
+            Some(icon.clone())
+        );
+        assert_eq!(find_mmc_icon(dir.path(), &instance, None), Some(icon));
+        std::fs::remove_file(instance.join("icon.png")).unwrap();
+        std::fs::write(dir.path().join("outside.png"), b"private").unwrap();
+        assert_eq!(
+            find_mmc_icon(dir.path(), &instance, Some("../outside.png")),
+            None
+        );
+    }
 }

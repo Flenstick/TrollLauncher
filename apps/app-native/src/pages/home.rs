@@ -99,13 +99,9 @@ impl App {
 
 		if !self.jobs.is_empty() || !self.installing.is_empty() {
 			ui.add_space(20.0);
-			for job in &self.jobs {
-				label(ui, &job.title, medium(13.0), TEXT_DIM());
-				let (rect, _) = ui.allocate_exact_size(
-					vec2(ui.available_width(), 4.0),
-					Sense::hover(),
-				);
-				progress_bar(ui.painter(), rect, job.progress.unwrap_or(0.05));
+			for job in self.jobs.clone() {
+				self.job_ui(ui, &job);
+				ui.add_space(8.0);
 			}
 			if !self.installing.is_empty() {
 				label(

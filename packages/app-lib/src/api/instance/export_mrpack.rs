@@ -277,6 +277,19 @@ pub async fn export_mrpack(
         }
     }
 
+    if let Some(icon) = metadata.instance.icon_path.as_ref() {
+        let path = PathBuf::from(icon);
+        let size = io::metadata(&path).await?.len();
+        ensure_standard_zip_file_size(size)?;
+        override_files
+            .retain(|(_, relative, _)| relative.as_str() != "icon.png");
+        override_files.push((
+            ReadableContent::Local(path),
+            SafeRelativeUtf8UnixPathBuf::try_from("icon.png".to_owned())?,
+            size,
+        ));
+    }
+
     let total_bytes = override_files
         .iter()
         .fold(1_u64, |total, (_, _, size)| total.saturating_add(*size));
@@ -718,4 +731,232 @@ pub async fn create_mrpack_json(
         files,
         dependencies,
     })
+}
+
+#[cfg(test)]
+mod import_export_regression {
+    use super::*;
+    use crate::state::instances::commands::{
+        InstallContent, install_stored_file,
+    };
+    use crate::state::{
+        ContentSourceKind, EditInstance, InstanceInstallStage, InstanceLink,
+        ProjectType,
+    };
+
+    #[tokio::test]
+    #[ignore = "initializes launcher state; run with an isolated XDG_DATA_HOME under the system temporary directory"]
+    async fn imported_mods_and_selected_icon_survive_export() {
+        let isolated = PathBuf::from(
+            std::env::var_os("XDG_DATA_HOME")
+                .expect("isolated XDG_DATA_HOME required"),
+        );
+        assert!(isolated.starts_with(std::env::temp_dir()));
+        crate::EventState::init().await.unwrap();
+        State::init("TrollLauncher".to_owned()).await.unwrap();
+        let state = State::get().await.unwrap();
+        let scratch = tempfile::tempdir().unwrap();
+        let icon = scratch.path().join("avatar.png");
+        image::RgbaImage::from_fn(32, 32, |x, y| {
+            image::Rgba(if x < 16 && y < 16 {
+                [120, 180, 255, 255]
+            } else {
+                [45, 44, 248, 255]
+            })
+        })
+        .save(&icon)
+        .unwrap();
+        let metadata = crate::api::instance::create(
+            "Import regression".into(),
+            "1.21.1".into(),
+            ModLoader::Fabric,
+            Some("0.16.9".into()),
+            None,
+            None,
+            InstanceLink::ImportedModpack {
+                project_id: None,
+                version_id: None,
+                name: Some("Fixture".into()),
+                version_number: Some("1".into()),
+                filename: Some("fixture.mrpack".into()),
+            },
+        )
+        .await
+        .unwrap();
+        let id = metadata.instance.id;
+        crate::api::instance::edit(
+            &id,
+            EditInstance {
+                install_stage: Some(InstanceInstallStage::Installed),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        crate::api::instance::edit_icon(&id, Some(&icon))
+            .await
+            .unwrap();
+        for (name, source_kind, enabled) in [
+            ("bundled", ContentSourceKind::ImportedModpack, true),
+            ("custom", ContentSourceKind::Local, false),
+        ] {
+            let source = scratch.path().join(format!("{name}.jar"));
+            let mut jar =
+                ZipWriter::new(std::fs::File::create(&source).unwrap());
+            jar.start_file("fabric.mod.json", SimpleFileOptions::default())
+                .unwrap();
+            write!(jar, "{{\"schemaVersion\":1,\"id\":\"{name}\",\"version\":\"1.0\",\"name\":\"{name}\"}}").unwrap();
+            jar.finish().unwrap();
+            let stored = state.content_store.store_file(&source).await.unwrap();
+            install_stored_file(
+                &id,
+                InstallContent {
+                    requested_path: &format!("mods/{name}.jar"),
+                    stored_file: &stored,
+                    project_type: ProjectType::Mod,
+                    source_kind,
+                    origin: None,
+                    enabled_override: Some(enabled),
+                    previous_path: None,
+                },
+                &state,
+            )
+            .await
+            .unwrap();
+        }
+        crate::api::instance::sync_content_files(&id).await.unwrap();
+        let custom = crate::api::instance::get_content_items(&id, None)
+            .await
+            .unwrap();
+        let bundled =
+            crate::api::instance::get_linked_modpack_content(&id, None)
+                .await
+                .unwrap();
+        assert_eq!(custom.len(), 1);
+        assert_eq!(bundled.len(), 1);
+        assert!(!custom[0].enabled);
+        assert!(bundled[0].enabled);
+        let paths: HashSet<_> = custom
+            .into_iter()
+            .chain(bundled)
+            .map(|item| item.file_path)
+            .collect();
+        assert_eq!(paths.len(), 2);
+        let export = isolated.join("fixture.mrpack");
+        export_mrpack(
+            &id,
+            export.clone(),
+            vec!["mods".into()],
+            vec![],
+            Some("1".into()),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let mut zip =
+            zip::ZipArchive::new(std::fs::File::open(&export).unwrap())
+                .unwrap();
+        let mut actual_icon = Vec::new();
+        zip.by_name("overrides/icon.png")
+            .unwrap()
+            .read_to_end(&mut actual_icon)
+            .unwrap();
+        let metadata = crate::api::instance::get(&id).await.unwrap().unwrap();
+        assert_eq!(
+            actual_icon,
+            std::fs::read(metadata.instance.icon_path.unwrap()).unwrap()
+        );
+        assert!(zip.by_name("overrides/mods/bundled.jar").is_ok());
+        assert!(zip.by_name("overrides/mods/custom.jar.disabled").is_ok());
+        let broken = isolated.join("broken.mrpack");
+        std::fs::write(&broken, b"not an archive").unwrap();
+        let failed = crate::install::create_modpack_instance(
+            crate::pack::install_from::CreatePackLocation::FromFile {
+                path: broken,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        let failed_id = failed.job_id.parse().unwrap();
+        let failed =
+            tokio::time::timeout(std::time::Duration::from_secs(15), async {
+                loop {
+                    let snapshot =
+                        crate::install::get_job(failed_id).await.unwrap();
+                    if snapshot.status.is_finished() {
+                        break snapshot;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50))
+                        .await;
+                }
+            })
+            .await
+            .unwrap();
+        assert_eq!(failed.status, crate::install::InstallJobStatus::Failed);
+        assert!(failed.error.is_some());
+        println!(
+            "regression profile {id}: bundled + custom mod and selected icon verified; {}",
+            export.display()
+        );
+    }
+}
+
+#[cfg(test)]
+mod local_pack_import_probe {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "network integration: requires TROLL_IMPORT_PACK_PATH and isolated XDG_DATA_HOME"]
+    async fn installs_local_pack_with_progress() {
+        let isolated = PathBuf::from(
+            std::env::var_os("XDG_DATA_HOME")
+                .expect("isolated XDG_DATA_HOME required"),
+        );
+        assert!(isolated.starts_with(std::env::temp_dir()));
+        let path = PathBuf::from(
+            std::env::var_os("TROLL_IMPORT_PACK_PATH")
+                .expect("TROLL_IMPORT_PACK_PATH required"),
+        );
+        crate::EventState::init().await.unwrap();
+        State::init("TrollLauncher".to_owned()).await.unwrap();
+        let job = crate::install::create_modpack_instance(
+            crate::pack::install_from::CreatePackLocation::FromFile { path },
+            None,
+        )
+        .await
+        .unwrap();
+        let id = job.job_id.parse().unwrap();
+        let started = std::time::Instant::now();
+        let mut previous = String::new();
+        loop {
+            let job = crate::install::get_job(id).await.unwrap();
+            let summary = format!(
+                "{:?} {:?} {:?} {:?}",
+                job.status,
+                job.phase,
+                job.progress.as_ref().map(|p| (p.current, p.total)),
+                job.error
+            );
+            if summary != previous {
+                println!("{}s {summary}", started.elapsed().as_secs());
+                previous = summary.clone();
+            }
+            if job.status.is_finished() {
+                assert_eq!(
+                    job.status,
+                    crate::install::InstallJobStatus::Succeeded,
+                    "{:?}",
+                    job.error
+                );
+                break;
+            }
+            if started.elapsed().as_secs() > 900 {
+                let _ = crate::install::cancel_job(id).await;
+                panic!("Import diagnostic exceeded fifteen minutes: {summary}");
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    }
 }

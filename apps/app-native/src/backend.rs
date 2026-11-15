@@ -119,8 +119,16 @@ pub struct Account {
 
 #[derive(Clone, Debug)]
 pub struct Job {
+    pub id: String,
     pub title: String,
     pub progress: Option<f32>,
+    pub status: theseus::install::InstallJobStatus,
+    pub phase: theseus::install::InstallPhaseId,
+    pub progress_label: String,
+    pub error: Option<String>,
+    pub can_cancel: bool,
+    pub canceling: bool,
+    pub paused: bool,
     pub instance_id: Option<String>,
 }
 
@@ -283,14 +291,7 @@ impl Backend {
                 let _ = tx.send(Msg::Running(map));
             }
             if let Ok(jobs) = install::list_jobs(false).await {
-                let jobs = jobs
-                    .into_iter()
-                    .map(|j| Job {
-                        title: j.display.map(|d| d.title).unwrap_or_else(|| "Установка".into()),
-                        progress: j.progress.filter(|p| p.total > 0).map(|p| p.current as f32 / p.total as f32),
-                        instance_id: j.instance_id,
-                    })
-                    .collect();
+                let jobs = jobs.into_iter().map(Job::from_snapshot).collect();
                 let _ = tx.send(Msg::Jobs(jobs));
             }
         });
@@ -410,7 +411,23 @@ impl Backend {
 
     pub fn load_content(&self, id: String) {
         self.task(|tx| async move {
-            match instance::get_content_items(&id, None).await {
+            let result = async {
+                instance::sync_content_files(&id).await?;
+                let (custom, bundled) = tokio::try_join!(
+                    instance::get_content_items(&id, None),
+                    instance::get_linked_modpack_content(&id, None),
+                )?;
+                let mut seen = std::collections::HashSet::new();
+                Ok::<_, theseus::Error>(
+                    custom
+                        .into_iter()
+                        .chain(bundled)
+                        .filter(|item| seen.insert(item.file_path.clone()))
+                        .collect::<Vec<_>>(),
+                )
+            }
+            .await;
+            match result {
                 Ok(items) => {
                     let mut rows: Vec<ContentRow> = items
                         .into_iter()

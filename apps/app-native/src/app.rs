@@ -458,7 +458,13 @@ impl App {
                     }
                 }
                 Msg::Jobs(j) => {
-                    if j.len() < self.jobs_before {
+                    if j.len() < self.jobs_before
+                        || j.iter().any(|next| {
+                            self.jobs.iter().any(|old| {
+                                old.id == next.id && old.status != next.status
+                            })
+                        })
+                    {
                         self.be.refresh_instances();
                         if let Page::Instance(id) = &self.page {
                             self.be.load_content(id.clone());
@@ -973,24 +979,39 @@ impl App {
             ui.painter().circle_filled(c, 7.0, accent());
             text_at(ui.painter(), c, Align2::CENTER_CENTER, n, semibold(10.0), on_accent());
         }
-        let jobs: Vec<(String, Option<f32>)> = self
-            .jobs
+        let jobs = self.jobs.clone();
+        let extra: Vec<_> = self
+            .installing
             .iter()
-            .map(|j| (j.title.clone(), j.progress))
-            .chain(self.installing.iter().map(|p| (self.hits.iter().find(|h| &h.project_id == p).map(|h| h.title.clone()).unwrap_or_else(|| p.clone()), None)))
+            .map(|id| {
+                self.hits
+                    .iter()
+                    .find(|hit| &hit.project_id == id)
+                    .map(|hit| hit.title.clone())
+                    .unwrap_or_else(|| id.clone())
+            })
             .collect();
-        resp.on_hover_ui(|ui| {
-            ui.set_min_width(240.0);
-            if jobs.is_empty() {
-                label(ui, "Загрузок нет", regular(13.0), TEXT_DIM());
-            }
-            for (t, p) in &jobs {
-                label(ui, t, medium(13.0), TEXT());
-                if let Some(p) = p {
-                    let (r, _) = ui.allocate_exact_size(vec2(230.0, 4.0), Sense::hover());
-                    progress_bar(ui.painter(), r, *p);
-                }
-            }
+        egui::Popup::menu(&resp).show(|ui| {
+            ui.set_width(380.0);
+            egui::ScrollArea::vertical()
+                .max_height(500.0)
+                .show(ui, |ui| {
+                    if jobs.is_empty() && extra.is_empty() {
+                        label(ui, "Загрузок нет", regular(13.0), TEXT_DIM());
+                    }
+                    for job in &jobs {
+                        self.job_ui(ui, job);
+                        ui.add_space(8.0);
+                    }
+                    for title in &extra {
+                        label(
+                            ui,
+                            format!("Устанавливается: {title}"),
+                            regular(13.0),
+                            TEXT(),
+                        );
+                    }
+                });
         });
     }
 

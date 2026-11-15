@@ -276,6 +276,7 @@ impl Backend {
                     }
                     ExportFormat::Prism | ExportFormat::CurseForge => {
                         let o = m.launch_overrides;
+						let icon_path = m.instance.icon_path.clone().map(PathBuf::from);
                         let out2 = out.clone();
                         let tmp = PathBuf::from(format!("{}.part", out2.display()));
                         let tmp2 = tmp.clone();
@@ -288,7 +289,7 @@ impl Backend {
                                 comps.extend(components.iter().map(|(uid, v)| serde_json::json!({"uid": uid, "version": v})));
                                 zw.start_file("mmc-pack.json", opts)?;
                                 zw.write_all(serde_json::to_string_pretty(&serde_json::json!({"components": comps, "formatVersion": 1}))?.as_bytes())?;
-                                let mut cfg = format!("[General]\nConfigVersion=1.2\nInstanceType=OneSix\niconKey=default\nname={name}\n");
+                                let mut cfg = format!("[General]\nConfigVersion=1.2\nInstanceType=OneSix\niconKey=icon\nname={name}\n");
                                 if let Some(mem) = &o.memory {
                                     cfg += &format!("OverrideMemory=true\nMaxMemAlloc={}\nMinMemAlloc=512\n", mem.maximum);
                                 }
@@ -317,7 +318,14 @@ impl Backend {
                                 zw.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
                                 "overrides/"
                             };
+							if let Some(ref icon_path) = icon_path {
+								let entry = if format == ExportFormat::Prism { "icon.png" } else { "overrides/icon.png" };
+								zw.start_file(entry, opts)?;
+								let mut file = std::fs::File::open(icon_path)?;
+								std::io::copy(&mut file, &mut zw)?;
+							}
                             for rel in &include {
+								if icon_path.is_some() && rel == "icon.png" { continue; }
                                 if base.join(rel).exists() {
                                     zip_add(&mut zw, &base, rel, prefix)?;
                                 }

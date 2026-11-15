@@ -6,6 +6,7 @@
 mod app;
 mod backend;
 mod cats;
+mod downloads;
 mod instcfg;
 mod importing;
 mod filedrop;

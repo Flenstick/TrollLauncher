@@ -1544,7 +1544,11 @@ async fn install_pack_inner(
     let reporter = InstallProgressReporter::new(job_id, job_state.clone());
     reporter
         .update(
-            InstallPhaseId::DownloadingPackFile,
+            if matches!(&location, CreatePackLocation::FromFile { .. }) {
+                InstallPhaseId::ReadingPackManifest
+            } else {
+                InstallPhaseId::DownloadingPackFile
+            },
             None,
             modpack_details(&location),
         )
