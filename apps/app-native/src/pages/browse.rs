@@ -248,11 +248,11 @@ impl App {
         let (r, resp) = ui.allocate_exact_size(vec2(w, 116.0), Sense::click());
         let t = hover_anim(ui, resp.id, resp.hovered());
         let p = ui.painter().clone();
-        p.rect(r, 12, PANEL().lerp_to_gamma(RAISED(), t), Stroke::new(1.0, BORDER().lerp_to_gamma(HOVER(), t)), StrokeKind::Inside);
+        p.rect(r, rr(12), PANEL().lerp_to_gamma(RAISED(), t), Stroke::new(1.0, BORDER().lerp_to_gamma(HOVER(), t)), StrokeKind::Inside);
         let ir = Rect::from_min_size(r.min + vec2(16.0, 18.0), Vec2::splat(80.0));
-        p.rect_filled(ir, 14, RAISED());
+        p.rect_filled(ir, rr(14), RAISED());
         match &h.icon_url {
-            Some(u) if !u.is_empty() => egui::Image::from_uri(u.clone()).corner_radius(14).paint_at(ui, ir),
+            Some(u) if !u.is_empty() => egui::Image::from_uri(u.clone()).corner_radius(rr(14)).paint_at(ui, ir),
             _ => {
                 let (seed, hue) = seed_of(&h.project_id);
                 pixel_icon(&p, ir, seed, hue, 14.0);
@@ -271,7 +271,7 @@ impl App {
             if cr.right() > r.right() - right_w {
                 break;
             }
-            p.rect_filled(cr, 5, HOVER());
+            p.rect_filled(cr, rr(5), HOVER());
             p.galley(cr.center() - g.size() / 2.0, g, TEXT_DIM());
             tx = cr.right() + 6.0;
         }
@@ -288,20 +288,20 @@ impl App {
         let id = &h.project_id;
         if self.installing.contains(id) {
             let ph = (Self::now(ui) * 1.6).fract() as f32;
-            p.rect_filled(br, 8, HOVER());
+            p.rect_filled(br, rr(8), HOVER());
             let seg = Rect::from_min_size(pos2(br.left() + (br.width() - 50.0) * ph, br.top()), vec2(50.0, br.height()));
-            p.rect_filled(seg, 8, accent().gamma_multiply(0.6));
+            p.rect_filled(seg, rr(8), accent().gamma_multiply(0.6));
             text_at(&p, br.center(), Align2::CENTER_CENTER, "Установка…", semibold(13.0), Color32::WHITE);
             ui.ctx().request_repaint();
         } else if self.installed.contains(id) && !is_pack {
-            p.rect_filled(br, 8, GREEN().gamma_multiply(0.14));
+            p.rect_filled(br, rr(8), GREEN().gamma_multiply(0.14));
             let g = p.layout_no_wrap("Установлен".into(), semibold(13.0), GREEN());
             let cx = br.center().x - (g.size().x + 20.0) / 2.0;
             icon(&p, Icon::Check, Rect::from_center_size(pos2(cx + 7.0, br.center().y), Vec2::splat(15.0)), GREEN());
             p.galley(pos2(cx + 20.0, br.center().y - g.size().y / 2.0), g, GREEN());
         } else {
             let can = is_pack || self.browse_target.is_some();
-            p.rect_filled(br, 8, accent().lerp_to_gamma(lighten(accent(), 0.14), bt).gamma_multiply(if can { 1.0 } else { 0.4 }));
+            p.rect_filled(br, rr(8), accent().lerp_to_gamma(lighten(accent(), 0.14), bt).gamma_multiply(if can { 1.0 } else { 0.4 }));
             let g = p.layout_no_wrap("Установить".into(), semibold(13.0), on_accent());
             let cx = br.center().x - (g.size().x + 22.0) / 2.0;
             icon(&p, Icon::Download, Rect::from_center_size(pos2(cx + 7.0, br.center().y), Vec2::splat(15.0)), on_accent());

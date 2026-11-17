@@ -256,7 +256,7 @@ fn hero_background(p: &Painter, r: Rect) {
 	};
 	let mut mesh = Mesh::default();
 	mesh.colored_vertex(r.center(), color(r.center().x));
-	for point in rounded_outline(r, 16.0) {
+	for point in rounded_outline(r, 16.0 * round_k()) {
 		mesh.colored_vertex(point, color(point.x));
 	}
 	let count = mesh.vertices.len() as u32 - 1;
@@ -296,8 +296,7 @@ fn hero_background(p: &Painter, r: Rect) {
 		));
 	}
 	p.rect_stroke(
-		r,
-		16,
+		r, rr(16),
 		Stroke::new(1.0, BORDER().lerp_to_gamma(accent(), 0.18)),
 		StrokeKind::Inside,
 	);
@@ -313,8 +312,7 @@ fn recent_card(
 	let t = hover_anim(ui, resp.id, resp.hovered());
 	let p = ui.painter().clone();
 	p.rect(
-		rect,
-		12,
+		rect, rr(12),
 		PANEL().lerp_to_gamma(RAISED(), t),
 		Stroke::new(1.0, BORDER().lerp_to_gamma(HOVER(), t)),
 		StrokeKind::Inside,

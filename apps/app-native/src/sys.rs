@@ -30,9 +30,11 @@ pub fn data_root() -> PathBuf {
     dirs::data_dir().unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".local/share"))
 }
 
-/// `file://`-ссылка на локальный файл для картинок egui (на Windows — с прямыми слэшами).
+/// `file://`-ссылка на локальный файл для картинок egui. На Windows — `file:///C:/…`:
+/// без третьего слэша загрузчик egui считает `C:` именем сервера (UNC) и файл не находится.
 pub fn file_uri(p: &std::path::Path) -> String {
-    format!("file://{}", p.display().to_string().replace('\\', "/"))
+    let s = p.display().to_string().replace('\\', "/");
+    if s.starts_with('/') { format!("file://{s}") } else { format!("file:///{s}") }
 }
 
 /// Флаг «без окна консоли» для служебных процессов на Windows.

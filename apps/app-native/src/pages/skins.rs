@@ -25,7 +25,7 @@ impl App {
                     ui.set_width(284.0);
                     ui.spacing_mut().item_spacing.y = 10.0;
                     let (r, resp) = ui.allocate_exact_size(vec2(284.0, 380.0), Sense::click_and_drag());
-                    ui.painter().rect_filled(r, 10, INPUT());
+                    ui.painter().rect_filled(r, rr(10), INPUT());
                     if resp.dragged() {
                         self.skin_yaw += resp.drag_delta().x * 0.012;
                     } else if !self.calm() {
@@ -84,6 +84,9 @@ impl App {
                             if resp.on_hover_text(if s.favorite { "Убрать из избранного" } else { "В избранное" }).clicked() {
                                 self.be.update_skin(s.id.clone(), None, Some(!s.favorite), None);
                             }
+                            if button(ui, "Редактировать", None, Kind::Secondary, 36.0).on_hover_text("Рисовать на скине и брать одежду с других скинов").clicked() {
+                                self.open_skin_editor(Some(s));
+                            }
                             let more = button(ui, "", Some(Icon::More), Kind::Secondary, 36.0);
                             egui::Popup::menu(&more).show(|ui| {
                                 if ui.button(egui::RichText::new("Удалить скин").color(lighten(DANGER(), 0.2))).clicked() {
@@ -106,6 +109,9 @@ impl App {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         if button(ui, "PNG-файл", Some(Icon::Plus), Kind::Primary, 34.0).clicked() {
                             self.be.pick(Pick::SkinFile);
+                        }
+                        if button(ui, "Нарисовать", Some(Icon::Image), Kind::Secondary, 34.0).on_hover_text("Новый скин в редакторе").clicked() {
+                            self.open_skin_editor(None);
                         }
                         if button(ui, "По нику", Some(Icon::User), Kind::Secondary, 34.0).clicked() {
                             self.nick.open = true;
@@ -136,7 +142,7 @@ impl App {
                             let t = hover_anim(ui, resp.id, resp.hovered());
                             let sel = ui.ctx().animate_bool_with_time(Id::new("skinsel").with(&s.id), self.skin_sel.as_deref() == Some(&s.id), 0.15);
                             let p = ui.painter().clone();
-                            p.rect(r, 12, PANEL().lerp_to_gamma(RAISED(), t), Stroke::new(1.0 + sel, BORDER().lerp_to_gamma(accent(), sel)), StrokeKind::Inside);
+                            p.rect(r, rr(12), PANEL().lerp_to_gamma(RAISED(), t), Stroke::new(1.0 + sel, BORDER().lerp_to_gamma(accent(), sel)), StrokeKind::Inside);
                             let fig = Rect::from_min_max(r.min + vec2(8.0, 10.0), pos2(r.right() - 8.0, r.bottom() - 38.0));
                             if let Some(tx) = self.skin_tex.get(&s.id) {
                                 // при наведении модель поворачивается
@@ -161,6 +167,9 @@ impl App {
                                     && ui.button("Надеть").clicked()
                                 {
                                     self.be.equip_skin(a, s.clone());
+                                }
+                                if ui.button("Редактировать").clicked() {
+                                    self.open_skin_editor(Some(s));
                                 }
                                 if ui.button(if s.favorite { "Убрать из избранного" } else { "В избранное" }).clicked() {
                                     self.be.update_skin(s.id.clone(), None, Some(!s.favorite), None);

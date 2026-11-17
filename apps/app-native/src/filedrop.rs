@@ -44,10 +44,9 @@ impl App {
 				Id::new("file-drop-overlay"),
 			));
 			let rect = ctx.viewport_rect().shrink(12.0);
-			painter.rect_filled(rect, 14, PANEL().gamma_multiply(0.96));
+			painter.rect_filled(rect, rr(14), PANEL().gamma_multiply(0.96));
 			painter.rect_stroke(
-				rect,
-				14,
+				rect, rr(14),
 				Stroke::new(2.0, accent()),
 				egui::StrokeKind::Inside,
 			);
@@ -102,7 +101,7 @@ impl App {
 			.frame(
 				egui::Frame::new()
 					.fill(PANEL())
-					.corner_radius(14)
+					.corner_radius(rr(14))
 					.stroke(Stroke::new(1.0, BORDER()))
 					.inner_margin(Margin::same(22)),
 			)

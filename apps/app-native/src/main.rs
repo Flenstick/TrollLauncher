@@ -14,15 +14,20 @@ mod modinfo;
 mod msa;
 mod navigation;
 mod pages;
+mod pixicons;
+mod sfupdate;
 mod prefs;
 mod selftest;
 mod sfskin;
 mod skin3d;
+mod skinedit;
 mod sidebar_instances;
 mod sys;
 mod theme;
 mod update;
 mod widgets;
+mod look;
+mod navbars;
 #[cfg(windows)]
 mod winstall;
 

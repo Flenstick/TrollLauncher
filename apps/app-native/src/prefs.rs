@@ -21,6 +21,22 @@ pub struct Prefs {
 	/// Ключ CurseForge API (console.curseforge.com) — для обзора CurseForge
 	pub cf_key: String,
 	pub sidebar_order: Vec<String>,
+	/// Макет (look::PRESETS); после ручных правок остаётся последним выбранным
+	pub preset: String,
+	/// Где меню
+	pub nav: crate::look::Nav,
+	/// Скругление углов: 1 — обычно, 0 — квадратные
+	pub round: f32,
+	/// Плотность: 0.8 — тесно, 1.2 — просторно
+	pub density: f32,
+	/// Стиль иконок (look::ICON_STYLES) или `pack:<имя>`
+	pub icons: String,
+	/// Красить свои иконки в цвет темы
+	pub icon_tint: bool,
+	/// inter / pixel / mono / sys:<семейство> / file:<путь>
+	pub font: String,
+	/// Для sys: файлы обычного, medium, semibold, bold («путь#номер»)
+	pub font_files: Vec<String>,
 }
 
 impl Default for Prefs {
@@ -35,6 +51,14 @@ impl Default for Prefs {
 			cat_fit: 0,
 			cf_key: String::new(),
 			sidebar_order: Vec::new(),
+			preset: "trollland".into(),
+			nav: crate::look::Nav::Side,
+			round: 1.0,
+			density: 1.0,
+			icons: "lines".into(),
+			icon_tint: true,
+			font: crate::look::FONT_INTER.into(),
+			font_files: Vec::new(),
 		}
 	}
 }

@@ -1,6 +1,6 @@
 [package]
 name = "trolllauncher-native"
-version = "2.0.5"
+version = "2.1.0"
 edition.workspace = true
 description = "TrollLauncher — нативный интерфейс на Rust (egui) поверх движка theseus"
 
@@ -16,7 +16,7 @@ theseus = { workspace = true }
 daedalus = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "fs", "net", "io-util"] }
 eframe = "0.37"
-egui_extras = { version = "0.37", features = ["image", "file", "http", "gif", "webp"] }
+egui_extras = { version = "0.37", features = ["image", "file", "http", "gif", "webp", "svg"] }
 image = { workspace = true, features = ["png", "jpeg", "webp", "gif"] }
 reqwest = { workspace = true, features = ["json", "rustls-tls-webpki-roots"] }
 serde = { workspace = true, features = ["derive"] }
@@ -31,6 +31,9 @@ tao = "0.36"
 pulldown-cmark = { workspace = true }
 zip = { workspace = true }
 sha2 = { workspace = true }
+zstd = "0.13"
+ttf-parser = "0.25"
+memmap2 = "0.9"
 dirs = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]

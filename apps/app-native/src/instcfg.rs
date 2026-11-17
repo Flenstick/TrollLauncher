@@ -382,7 +382,7 @@ impl App {
     }
 
     pub fn inst_dialogs(&mut self, ctx: &egui::Context) {
-        let frame = egui::Frame::new().fill(PANEL()).corner_radius(14).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
+        let frame = egui::Frame::new().fill(PANEL()).corner_radius(rr(14)).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
         let screen = ctx.content_rect();
 
         // ── настройки сборки
@@ -537,7 +537,7 @@ impl App {
                         label(ui, "Считаю файлы…", regular(13.0), TEXT_DIM());
                     }
                     Some(entries) => {
-                        egui::Frame::new().fill(INPUT()).corner_radius(10).inner_margin(10).show(ui, |ui| {
+                        egui::Frame::new().fill(INPUT()).corner_radius(rr(10)).inner_margin(10).show(ui, |ui| {
                             egui::ScrollArea::vertical().max_height((screen.height() * 0.4).max(180.0)).auto_shrink([false, true]).show(ui, |ui| {
                                 ui.spacing_mut().item_spacing.y = 2.0;
                                 for e in entries.iter_mut() {

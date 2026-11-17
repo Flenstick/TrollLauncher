@@ -4,6 +4,7 @@ use crate::{
     theme::*,
     widgets::*,
 };
+use crate::sfupdate::{SfJob, SfState};
 use eframe::egui::{self, Sense, Ui, vec2};
 use theseus::install::{
     self, InstallJobSnapshot, InstallJobStatus, InstallPhaseId,
@@ -107,6 +108,48 @@ impl Job {
 }
 
 impl App {
+    /// Обновление sfatm в «Загрузках»: прогресс, ожидание выхода из игры, ошибка с «Повторить».
+    pub fn sfatm_job_ui(&mut self, ui: &mut Ui, job: &SfJob) {
+        label(ui, format!("sfatm {} → {} · {}", job.from, job.to, job.name), semibold(14.0), TEXT());
+        match &job.state {
+            SfState::Downloading { done, total } => {
+                label(ui, "Обновление sfatm", regular(13.0), TEXT_DIM());
+                let mb = |b: u64| b as f64 / 1_048_576.0;
+                if *total > 0 {
+                    label(ui, format!("{:.1} / {:.1} МБ", mb(*done), mb(*total)), regular(12.0), TEXT_DIM());
+                    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 4.0), Sense::hover());
+                    progress_bar(ui.painter(), rect, (*done as f32 / *total as f32).clamp(0.0, 1.0));
+                } else {
+                    ui.spinner();
+                }
+            }
+            SfState::Waiting => {
+                label(ui, "Обновится сам после выхода из игры", regular(13.0), TEXT_DIM());
+            }
+            SfState::Done => {
+                label(ui, "sfatm обновлён", regular(13.0), TEXT_DIM());
+            }
+            SfState::Failed(e) => {
+                label(ui, "Не удалось обновить sfatm", regular(13.0), DANGER());
+                ui.add(egui::Label::new(egui::RichText::new(e).font(regular(12.5)).color(DANGER())).wrap());
+            }
+        }
+        ui.horizontal_wrapped(|ui| {
+            if let SfState::Failed(e) = &job.state {
+                if button(ui, "Повторить", Some(Icon::Refresh), Kind::Secondary, 30.0).clicked() {
+                    let running = self.running.keys().cloned().collect();
+                    self.be.sfatm_sync(vec![job.inst.clone()], running, true);
+                }
+                if button(ui, "Скопировать ошибку", Some(Icon::Copy), Kind::Secondary, 30.0).clicked() {
+                    ui.ctx().copy_text(e.clone());
+                }
+            }
+            if matches!(job.state, SfState::Done | SfState::Failed(_)) && button(ui, "Убрать", None, Kind::Secondary, 30.0).clicked() {
+                crate::sfupdate::dismiss(&job.inst);
+            }
+        });
+    }
+
     pub fn job_ui(&mut self, ui: &mut Ui, job: &Job) {
         let failed = matches!(
             job.status,

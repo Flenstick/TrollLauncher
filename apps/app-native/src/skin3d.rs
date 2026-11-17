@@ -34,7 +34,64 @@ pub struct Pose {
     pub idle: f32,
 }
 
+/// Грань модели на экране: 4 угла, uv в долях текстуры, глубина и яркость.
+pub struct Quad {
+    pub pts: [Pos2; 4],
+    pub uv: [(f32, f32); 4],
+    pub z: f32,
+    shade: f32,
+    /// Второй слой (шляпа, куртка, рукава, штанины)
+    pub overlay: bool,
+}
+
 pub fn draw(p: &Painter, rect: Rect, tex: TextureId, tex_h: f32, slim: bool, pose: Pose) {
+    paint(p, tex, &quads(rect, tex_h, slim, pose, true, true));
+}
+
+/// Нарисовать грани (уже отсортированы от дальних к ближним).
+pub fn paint(p: &Painter, tex: TextureId, quads: &[Quad]) {
+    let mut mesh = Mesh::with_texture(tex);
+    for q in quads {
+        let s = (q.shade.min(1.0) * 255.0) as u8;
+        let col = Color32::from_rgb(s, s, s);
+        let base = mesh.vertices.len() as u32;
+        for k in 0..4 {
+            mesh.vertices.push(Vertex { pos: q.pts[k], uv: egui::pos2(q.uv[k].0, q.uv[k].1), color: col });
+        }
+        mesh.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+    p.add(Shape::mesh(mesh));
+}
+
+/// Какой пиксель текстуры под точкой экрана: ближайшая грань, для которой `accept(грань, x, y)`.
+/// Так прозрачные пиксели второго слоя можно «пропускать» к основному.
+pub fn pick(quads: &[Quad], at: Pos2, tex_h: f32, accept: impl Fn(&Quad, usize, usize) -> bool) -> Option<(usize, usize)> {
+    let cross = |a: Pos2, b: Pos2, c: Pos2| (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    for q in quads.iter().rev() {
+        for (i, j, k) in [(0, 1, 2), (0, 2, 3)] {
+            let (a, b, c) = (q.pts[i], q.pts[j], q.pts[k]);
+            let area = cross(a, b, c);
+            if area.abs() < 1e-6 {
+                continue;
+            }
+            let (w0, w1, w2) = (cross(b, c, at) / area, cross(c, a, at) / area, cross(a, b, at) / area);
+            if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                continue;
+            }
+            let u = q.uv[i].0 * w0 + q.uv[j].0 * w1 + q.uv[k].0 * w2;
+            let v = q.uv[i].1 * w0 + q.uv[j].1 * w1 + q.uv[k].1 * w2;
+            let (x, y) = ((u * 64.0).floor().clamp(0.0, 63.0) as usize, (v * tex_h).floor().clamp(0.0, tex_h - 1.0) as usize);
+            if accept(q, x, y) {
+                return Some((x, y));
+            }
+            break;
+        }
+    }
+    None
+}
+
+/// Грани модели для отрисовки и выбора пикселя мышью; `base`/`overlay` — какие слои нужны.
+pub fn quads(rect: Rect, tex_h: f32, slim: bool, pose: Pose, base: bool, overlay: bool) -> Vec<Quad> {
     let legacy = tex_h < 63.0;
     let aw = if slim { 3.0 } else { 4.0 };
     let swing = pose.walk.sin() * 0.6;
@@ -77,15 +134,12 @@ pub fn draw(p: &Painter, rect: Rect, tex: TextureId, tex_h: f32, slim: bool, pos
         pos2(center.x + v.x * scale * f, center.y - v.y * scale * f)
     };
 
-    struct Quad {
-        pts: [Pos2; 4],
-        uv: [(f32, f32); 4],
-        z: f32,
-        shade: f32,
-    }
     let mut quads: Vec<Quad> = vec![];
     let (tw, th) = (64.0, tex_h);
     for part in &parts {
+        if (part.inflate > 0.0 && !overlay) || (part.inflate == 0.0 && !base) {
+            continue;
+        }
         let (w, h, d) = part.size;
         let i = part.inflate;
         let (x0, y0, z0) = (part.origin.x - i, part.origin.y - i, part.origin.z - i);
@@ -123,21 +177,12 @@ pub fn draw(p: &Painter, rect: Rect, tex: TextureId, tex_h: f32, slim: bool, pos
                 uv: [(ua, va), (ub, va), (ub, vb), (ua, vb)],
                 z,
                 shade: 0.72 + 0.28 * nz.clamp(0.0, 1.0) + 0.06 * ny.clamp(0.0, 1.0),
+                overlay: part.inflate > 0.0,
             });
         }
     }
     quads.sort_by(|a, b| a.z.partial_cmp(&b.z).unwrap_or(std::cmp::Ordering::Equal));
-    let mut mesh = Mesh::with_texture(tex);
-    for q in quads {
-        let s = (q.shade.min(1.0) * 255.0) as u8;
-        let col = Color32::from_rgb(s, s, s);
-        let base = mesh.vertices.len() as u32;
-        for k in 0..4 {
-            mesh.vertices.push(Vertex { pos: q.pts[k], uv: egui::pos2(q.uv[k].0, q.uv[k].1), color: col });
-        }
-        mesh.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
-    }
-    p.add(Shape::mesh(mesh));
+    quads
 }
 
 /// Голова спереди (лицо + шляпа) — для аватаров.

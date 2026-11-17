@@ -1,9 +1,9 @@
 //! Палитра, шрифты и стиль egui. Темы переключаются на лету: цвета читаются из общей палитры,
 //! поэтому `BG()`, `TEXT()` и т.д. — функции. Первая тема — цвета логотипа TrollLand.
 
-use eframe::egui::{self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle};
+use eframe::egui::{self, Color32, CornerRadius, FontFamily, FontId, Stroke, TextStyle};
 use std::sync::{
-    Arc, RwLock,
+    RwLock,
     atomic::{AtomicU32, Ordering},
 };
 
@@ -61,6 +61,12 @@ pub const THEMES: &[Theme] = &[
     theme!("trollland", "TrollLand", light: false,
         0x07070d 0x0a0a14 0x0f0f1d 0x15152a 0x1e1e3a 0x1c1c34 0x06060e, 0xeceeff 0x9a9ec4 0x5c6088,
         0x46a758 0xf5a524 0x7f8bfe 0xd13d45, accent 0x2f2cf8),
+    theme!("prism", "Prism (Fusion)", light: false,
+        0x2a2a2a 0x313131 0x383838 0x424242 0x4d4d4d 0x232323 0x1e1e1e, 0xececec 0xb4b4b4 0x828282,
+        0x5cb85c 0xf0ad4e 0x5aa0e6 0xd9534f, accent 0x2a82da),
+    theme!("pixel", "Пиксель", light: false,
+        0x1b1b1b 0x262626 0x313131 0x3c3c3c 0x4a4a4a 0x101010 0x141414, 0xf0f0f0 0xb8b8b8 0x7a7a7a,
+        0x6fbf3a 0xffd83d 0x5ab4ff 0xe0443a, accent 0x5d9e2f),
     theme!("graphite", "Графит", light: false,
         0x0b0b0d 0x101013 0x16161a 0x1d1d22 0x27272e 0x232329 0x0d0d10, 0xeeeef2 0x9a9aa6 0x62626e,
         0x46a758 0xf5a524 0x4c9aff 0xd13d45, accent 0xe5484d),
@@ -131,6 +137,26 @@ pub const THEMES: &[Theme] = &[
         0xeee8d5 0xf5efdc 0xfdf6e3 0xefe9d6 0xe3dcc6 0xddd6c1 0xfffbee, 0x2a4048 0x657b83 0x93a1a1,
         0x859900 0xb58900 0x268bd2 0xdc322f, accent 0x268bd2),
 ];
+
+// ── форма интерфейса (из макета): скругление и плотность ──
+static ROUND: AtomicU32 = AtomicU32::new(0x3f80_0000); // 1.0
+static DENSITY: AtomicU32 = AtomicU32::new(0x3f80_0000);
+
+/// Скругление углов (1 — как задумано, 0 — квадратные) и плотность (0.75 — тесно, 1.25 — просторно).
+pub fn set_shape(round: f32, density: f32) {
+    ROUND.store(round.clamp(0.0, 3.0).to_bits(), Ordering::Relaxed);
+    DENSITY.store(density.clamp(0.5, 1.6).to_bits(), Ordering::Relaxed);
+}
+pub fn round_k() -> f32 {
+    f32::from_bits(ROUND.load(Ordering::Relaxed))
+}
+pub fn density() -> f32 {
+    f32::from_bits(DENSITY.load(Ordering::Relaxed))
+}
+/// Скругление `v` пикселей с поправкой макета.
+pub fn rr(v: impl Into<f64>) -> CornerRadius {
+    CornerRadius::same((v.into() as f32 * round_k()).round().clamp(0.0, 255.0) as u8)
+}
 
 static PAL: RwLock<Palette> = RwLock::new(THEMES[0].p);
 static ACCENT: AtomicU32 = AtomicU32::new(THEMES[0].p.accent);
@@ -215,27 +241,6 @@ pub fn mono(size: f32) -> FontId {
     FontId::monospace(size)
 }
 
-pub fn setup_fonts(ctx: &egui::Context) {
-    let mut f = FontDefinitions::default();
-    let fonts: [(&str, &'static [u8]); 4] = [
-        ("inter", include_bytes!("../assets/Inter-Regular.ttf")),
-        ("inter-medium", include_bytes!("../assets/Inter-Medium.ttf")),
-        ("inter-semibold", include_bytes!("../assets/Inter-SemiBold.ttf")),
-        ("inter-bold", include_bytes!("../assets/Inter-Bold.ttf")),
-    ];
-    for (k, bytes) in fonts {
-        f.font_data.insert(k.into(), Arc::new(FontData::from_static(bytes)));
-    }
-    let fallback = f.families[&FontFamily::Proportional].clone();
-    f.families.get_mut(&FontFamily::Proportional).unwrap().insert(0, "inter".into());
-    for (name, key) in [("medium", "inter-medium"), ("semibold", "inter-semibold"), ("bold", "inter-bold")] {
-        let mut v = vec![key.to_string()];
-        v.extend(fallback.iter().cloned());
-        f.families.insert(FontFamily::Name(name.into()), v);
-    }
-    ctx.set_fonts(f);
-}
-
 pub fn apply_style(ctx: &egui::Context) {
     ctx.all_styles_mut(|s| {
         s.visuals = if is_light() { egui::Visuals::light() } else { egui::Visuals::dark() };
@@ -245,15 +250,15 @@ pub fn apply_style(ctx: &egui::Context) {
         v.extreme_bg_color = INPUT();
         v.faint_bg_color = PANEL();
         v.window_stroke = Stroke::new(1.0, BORDER());
-        v.window_corner_radius = CornerRadius::same(10);
-        v.menu_corner_radius = CornerRadius::same(10);
+        v.window_corner_radius = rr(10);
+        v.menu_corner_radius = rr(10);
         v.selection.bg_fill = accent().gamma_multiply(0.45);
         v.selection.stroke = Stroke::new(1.0, TEXT());
         v.hyperlink_color = lighten(accent(), 0.35);
         v.slider_trailing_fill = true;
         let w = &mut v.widgets;
         for st in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
-            st.corner_radius = CornerRadius::same(8);
+            st.corner_radius = rr(8);
             st.bg_stroke = Stroke::NONE;
             st.fg_stroke = Stroke::new(1.0, TEXT());
             st.expansion = 0.0;
@@ -275,9 +280,10 @@ pub fn apply_style(ctx: &egui::Context) {
         s.text_styles.insert(TextStyle::Heading, bold(22.0));
         s.text_styles.insert(TextStyle::Monospace, mono(12.5));
 
-        s.spacing.item_spacing = egui::vec2(8.0, 8.0);
-        s.spacing.button_padding = egui::vec2(12.0, 6.0);
-        s.spacing.interact_size.y = 30.0;
+        let d = density();
+        s.spacing.item_spacing = egui::vec2(8.0, 8.0) * d;
+        s.spacing.button_padding = egui::vec2(12.0, 6.0 * d);
+        s.spacing.interact_size.y = (30.0 * d).max(24.0);
         s.spacing.slider_width = 240.0;
         s.interaction.selectable_labels = false;
         s.interaction.tooltip_delay = 0.35;

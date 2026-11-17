@@ -21,6 +21,8 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    outputs:
+      skipped: ${{ steps.build.outputs.skipped }}
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
@@ -86,3 +88,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload $env:TAG (Get-ChildItem dist).FullName --clobber
+
+  # сжатый exe и патчи от прошлых версий для быстрого автообновления (2.0.6+), zstd есть на ubuntu
+  update-files:
+    needs: windows
+    if: (github.event.release.tag_name || inputs.tag) != '' && needs.windows.outputs.skipped != 'true'
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: trolllauncher-windows
+          path: win
+      - name: Make and attach
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' apps/app-native/Cargo.toml | head -n1)
+          packaging/make-update-files.sh windows "win/TrollLauncher-$version-windows-x86_64.exe" "$version" upd
+          rm -f "upd/TrollLauncher-$version-windows-x86_64.exe.sha256"  # такой уже приложен, тот же sha
+          gh release upload "$TAG" upd/* --clobber

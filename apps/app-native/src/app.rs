@@ -123,6 +123,7 @@ pub struct App {
     pub skin_tex: HashMap<String, SkinTex>,
     pub skin_equipped: HashMap<String, String>,
     pub skin_sel: Option<String>,
+    pub skin_edit: Option<crate::skinedit::SkinEditor>,
     pub skin_tab: usize,
     pub skin_yaw: f32,
     pub skin_walk: bool,
@@ -167,21 +168,31 @@ pub struct App {
     pub update_error: Option<String>,
     pub update_checked: Option<String>,
     last_update_check: f64,
+    /// Свои наборы иконок для превью в настройках (None — ещё не искали)
+    pub icon_packs: Option<Vec<(String, IconStyle)>>,
+    /// Выбран макет со шрифтом системы, а список шрифтов ещё ищется
+    pub font_pending: bool,
     last_poll: f64,
     last_refresh: f64,
     jobs_before: usize,
+    last_sfatm: f64,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        setup_fonts(&cc.egui_ctx);
-        let prefs = crate::prefs::load();
-        set_theme(theme_index(&prefs.theme), prefs.accent);
-        apply_style(&cc.egui_ctx);
+        let mut prefs = crate::prefs::load();
+        // для скриншотов и проверки: TL_PRESET=<id> — включить макет при старте (без сохранения)
+        let mut font_pending = false;
+        if let Some(pr) = std::env::var("TL_PRESET").ok().and_then(|id| crate::look::preset(&id)) {
+            crate::look::FONTS.start(&cc.egui_ctx);
+            font_pending = !crate::look::apply_preset(&mut prefs, pr);
+        }
+        crate::look::apply(&cc.egui_ctx, &prefs);
         if prefs.scale != 1.0 {
             cc.egui_ctx.set_zoom_factor(prefs.scale);
         }
         egui_extras::install_image_loaders(&cc.egui_ctx);
+        cc.egui_ctx.include_bytes(crate::backend::SFATM_ICON, crate::backend::SFATM_ICON_BYTES);
         let page = match std::env::var("TL_PAGE").as_deref() {
             Ok("library") => Page::Library,
             Ok("browse") => Page::Browse,
@@ -234,6 +245,7 @@ impl App {
             skin_tex: HashMap::new(),
             skin_equipped: HashMap::new(),
             skin_sel: None,
+            skin_edit: None,
             skin_tab: 0,
             skin_yaw: 0.45,
             skin_walk: false,
@@ -254,6 +266,7 @@ impl App {
             last_poll: 0.0,
             last_refresh: 0.0,
             jobs_before: 0,
+            last_sfatm: -1e9,
             perf: None,
             mod_info: None,
             mod_details: HashMap::new(),
@@ -276,13 +289,30 @@ impl App {
             update_error: None,
             update_checked: None,
             last_update_check: -1e9,
+            icon_packs: None,
+            font_pending,
+        }
+    }
+
+    /// Макет со шрифтом системы ждал списка шрифтов — применить, когда список готов.
+    fn resolve_pending_font(&mut self, ctx: &egui::Context) {
+        if !self.font_pending {
+            return;
+        }
+        let Some(fams) = crate::look::FONTS.get() else { return };
+        self.font_pending = false;
+        if let Some(crate::look::PresetFont::System(names)) = crate::look::preset(&self.prefs.preset).map(|p| &p.font)
+            && let Some((f, files)) = crate::look::resolve_system(names, &fams)
+        {
+            self.prefs.font = f;
+            self.prefs.font_files = files;
+            self.apply_look(ctx);
         }
     }
 
     /// Применить тему/акцент из настроек и сохранить их.
     pub fn apply_look(&mut self, ctx: &egui::Context) {
-        set_theme(theme_index(&self.prefs.theme), self.prefs.accent);
-        apply_style(ctx);
+        crate::look::apply(ctx, &self.prefs);
         crate::prefs::save(&self.prefs);
     }
 
@@ -440,7 +470,12 @@ impl App {
                     for id in r.keys() {
                         self.launching.remove(id);
                     }
-                    let stopped = self.running.keys().any(|k| !r.contains_key(k));
+                    let stopped_ids: Vec<String> = self.running.keys().filter(|k| !r.contains_key(*k)).cloned().collect();
+                    let stopped = !stopped_ids.is_empty();
+                    if stopped {
+                        // отложенное обновление sfatm — сразу после выхода из игры
+                        self.be.sfatm_sync(stopped_ids, Default::default(), false);
+                    }
                     let (was, now_playing) = (!self.running.is_empty(), !r.is_empty());
                     self.running = r;
                     // поведение окна как в Prism: свернуть при запуске игры, вернуть после выхода
@@ -537,6 +572,10 @@ impl App {
                 Msg::LauncherDir(d) => self.launcher_dir = d,
                 Msg::LauncherDirPending(p) => self.dir_pending = Some(p),
                 Msg::Skins(items, eq) => {
+                    // для скриншотов: TL_DIALOG=skinedit — редактор с первым скином
+                    if self.skins.is_empty() && self.skin_edit.is_none() && std::env::var("TL_DIALOG").as_deref() == Ok("skinedit") {
+                        self.skin_edit = Some(crate::skinedit::SkinEditor::new(items.first()));
+                    }
                     for it in &items {
                         if let Some((w, h, rgba)) = &it.rgba
                             && !self.skin_tex.contains_key(&it.id)
@@ -615,6 +654,23 @@ impl App {
                     Pick::InstanceIcon(id) => self.be.set_icon(id, path),
                     Pick::NewInstanceIcon => self.create.icon = Some(path),
                     Pick::SkinFile => self.be.add_skin_file(path),
+                    Pick::DonorSkin => match image::open(&path).map(|i| i.to_rgba8()) {
+                        Ok(i) => match (crate::skinedit::to_64(i.width(), i.height(), i.as_raw()), self.skin_edit.as_mut()) {
+                            (Some(px), Some(ed)) => ed.set_donor(path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), px),
+                            (None, _) => self.toasts.push(Toast { text: "Нужен скин 64×64 или 64×32".into(), error: true, born: now }),
+                            _ => {}
+                        },
+                        Err(e) => self.toasts.push(Toast { text: format!("Не удалось открыть скин: {e}"), error: true, born: now }),
+                    },
+                    Pick::FontFile => match crate::look::add_font_file(&path) {
+                        Ok(font) => {
+                            self.prefs.font = font;
+                            self.prefs.font_files.clear();
+                            self.apply_look(ctx);
+                            self.toasts.push(Toast { text: "Шрифт подключён".into(), error: false, born: now });
+                        }
+                        Err(e) => self.toasts.push(Toast { text: format!("Шрифт: {e}"), error: true, born: now }),
+                    },
                     Pick::CatImage => match crate::cats::add_own(&path) {
                         Ok(id) => {
                             self.cats = crate::cats::scan();
@@ -625,6 +681,20 @@ impl App {
                         Err(e) => self.toasts.push(Toast { text: format!("Не удалось добавить котика: {e}"), error: true, born: now }),
                     },
                 },
+                Msg::SkinDonor(res) => match (res, self.skin_edit.as_mut()) {
+                    (Ok((name, px)), Some(ed)) => ed.set_donor(name, px),
+                    (Err(e), ed) => {
+                        if let Some(ed) = ed {
+                            ed.busy = false;
+                        }
+                        self.toasts.push(Toast { text: e, error: true, born: now });
+                    }
+                    _ => {}
+                },
+                Msg::SkinSaved(id) => {
+                    self.skin_sel = Some(id);
+                    self.be.load_skins();
+                }
                 Msg::Memory(mb) => self.s.ram = mb as f32 / 1024.0,
                 Msg::Perf(p) => self.perf = Some(p),
                 Msg::InstSettings(id, st) => {
@@ -695,6 +765,14 @@ impl App {
                 self.last_update_check = now;
                 self.be.check_update(false);
             }
+            if !self.instances.is_empty() && now - self.last_sfatm > 20.0 * 60.0 {
+                self.last_sfatm = now;
+                let ids = self.instances.iter().map(|i| i.id.clone()).collect();
+                self.be.sfatm_sync(ids, self.running.keys().cloned().collect(), false);
+            }
+            if crate::sfupdate::downloading() {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(150));
+            }
             if now - self.last_refresh > if self.calm() { 30.0 } else { 6.0 } {
                 self.last_refresh = now;
                 self.be.refresh_instances();
@@ -708,6 +786,7 @@ impl App {
 
     /// Аватарка сборки: фото, если поставлено, иначе пиксельный узор.
     pub fn inst_icon(ui: &Ui, r: Rect, inst: &Inst, rounding: f32) {
+        let rounding = rounding * round_k();
         if let Some(p) = &inst.icon
             && std::path::Path::new(p).exists()
         {
@@ -766,7 +845,7 @@ impl App {
             let (r, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click());
             let t = hover_anim(ui, resp.id, resp.hovered());
             let hr = r.shrink(6.0 - t);
-            ui.painter().rect_filled(hr.expand(2.0), 7, HOVER().gamma_multiply(t));
+            ui.painter().rect_filled(hr.expand(2.0), rr(7), HOVER().gamma_multiply(t));
             self.account_face(ui, hr);
             let tip = self.default_account().map(|a| format!("{} · {}", a.name, if a.elyby { "Ely.by" } else { "Microsoft" })).unwrap_or_else(|| "Войти в аккаунт".into());
             if resp.on_hover_text(tip).clicked() {
@@ -805,7 +884,7 @@ impl App {
         if let Some(t) = tex {
             crate::skin3d::draw_face(ui.painter(), r, t.tex.id(), t.h);
         } else if self.accounts.is_empty() {
-            ui.painter().rect_filled(r, 6, RAISED());
+            ui.painter().rect_filled(r, rr(6), RAISED());
             icon(ui.painter(), Icon::User, r.shrink(5.0), hex(0x7f8bfe));
         } else {
             head(ui.painter(), r, &DEFAULT_LOOK, 7);
@@ -877,7 +956,7 @@ impl App {
         });
     }
 
-    fn update_button(&mut self, ui: &mut Ui) {
+    pub(crate) fn update_button(&mut self, ui: &mut Ui) {
         let Some(info) = &self.update else { return };
         let text = match self.update_stage {
             2 => "Перезапустить".to_string(),
@@ -902,14 +981,14 @@ impl App {
             self.update_dialog = false;
             return;
         };
-        let frame = Frame::new().fill(PANEL()).corner_radius(14).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
+        let frame = Frame::new().fill(PANEL()).corner_radius(rr(14)).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
         let r = egui::Modal::new(Id::new("update")).frame(frame).show(ctx, |ui| {
             ui.set_width(460.0);
             ui.spacing_mut().item_spacing.y = 10.0;
             label(ui, format!("TrollLauncher {}", info.version), bold(21.0), TEXT());
             label(ui, format!("Сейчас стоит {}. Сборки, аккаунты и настройки останутся на месте.", info.current), regular(13.5), TEXT_DIM());
             if !info.notes.is_empty() {
-                egui::Frame::new().fill(INPUT()).corner_radius(10).inner_margin(12).show(ui, |ui| {
+                egui::Frame::new().fill(INPUT()).corner_radius(rr(10)).inner_margin(12).show(ui, |ui| {
                     egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         let blocks = crate::modinfo::parse_md(&info.notes);
@@ -971,8 +1050,9 @@ impl App {
         }
     }
 
-    fn downloads_button(&mut self, ui: &mut Ui) {
-        let n = self.jobs.len() + self.installing.len();
+    pub(crate) fn downloads_button(&mut self, ui: &mut Ui) {
+        let sf = crate::sfupdate::jobs();
+        let n = self.jobs.len() + self.installing.len() + crate::sfupdate::badge();
         let resp = icon_button(ui, Icon::Download, 32.0, "");
         if n > 0 {
             let c = resp.rect.right_top() + vec2(-7.0, 7.0);
@@ -996,8 +1076,12 @@ impl App {
             egui::ScrollArea::vertical()
                 .max_height(500.0)
                 .show(ui, |ui| {
-                    if jobs.is_empty() && extra.is_empty() {
+                    if jobs.is_empty() && extra.is_empty() && sf.is_empty() {
                         label(ui, "Загрузок нет", regular(13.0), TEXT_DIM());
+                    }
+                    for job in &sf {
+                        self.sfatm_job_ui(ui, job);
+                        ui.add_space(8.0);
                     }
                     for job in &jobs {
                         self.job_ui(ui, job);
@@ -1015,7 +1099,7 @@ impl App {
         });
     }
 
-    fn running_pill(&mut self, ui: &mut Ui) {
+    pub(crate) fn running_pill(&mut self, ui: &mut Ui) {
         let now = Self::now(ui);
         let launching = self.launching.iter().find(|(id, t)| now - **t < 25.0 && !self.running.contains_key(*id)).map(|(id, _)| id.clone());
         let running = self.running.iter().next().map(|(id, t)| (id.clone(), *t));
@@ -1033,7 +1117,7 @@ impl App {
         let w = g.size().x + 26.0 + 36.0;
         let (r, resp) = ui.allocate_exact_size(vec2(w, 32.0), Sense::click());
         let p = ui.painter();
-        p.rect(r, 9, PANEL(), Stroke::new(1.0, BORDER()), StrokeKind::Inside);
+        p.rect(r, rr(9), PANEL(), Stroke::new(1.0, BORDER()), StrokeKind::Inside);
         let dot = pos2(r.left() + 14.0, r.center().y);
         if is_launch {
             let a = now as f32 * 6.0;
@@ -1054,7 +1138,7 @@ impl App {
         let sr = Rect::from_center_size(pos2(r.right() - 18.0, r.center().y), Vec2::splat(24.0));
         let stop = ui.interact(sr, Id::new("pill-stop"), Sense::click());
         let t = hover_anim(ui, stop.id, stop.hovered());
-        ui.painter().rect_filled(sr, 6, DANGER().gamma_multiply(0.15 + t * 0.85));
+        ui.painter().rect_filled(sr, rr(6), DANGER().gamma_multiply(0.15 + t * 0.85));
         icon(ui.painter(), Icon::Stop, sr.shrink(6.0), lighten(DANGER(), 0.5).lerp_to_gamma(Color32::WHITE, t));
         if stop.on_hover_text("Остановить").clicked() {
             self.be.kill(id.clone());
@@ -1088,9 +1172,9 @@ impl App {
                     let r = r.translate(vec2((1.0 - a_in) * 30.0, 0.0));
                     let p = ui.painter();
                     let col = if t.error { DANGER() } else { accent() };
-                    p.rect(r, 10, RAISED().gamma_multiply(a), Stroke::new(1.0, HOVER().gamma_multiply(a)), StrokeKind::Inside);
+                    p.rect(r, rr(10), RAISED().gamma_multiply(a), Stroke::new(1.0, HOVER().gamma_multiply(a)), StrokeKind::Inside);
                     let ir = Rect::from_center_size(pos2(r.left() + 22.0, r.center().y), Vec2::splat(26.0));
-                    p.rect_filled(ir, 7, col.gamma_multiply(0.18 * a));
+                    p.rect_filled(ir, rr(7), col.gamma_multiply(0.18 * a));
                     icon(p, if t.error { Icon::Close } else { Icon::Check }, ir.shrink(5.0), col.gamma_multiply(a));
                     p.galley(pos2(r.left() + 44.0, r.center().y - g.size().y / 2.0), g, TEXT().gamma_multiply(a));
                 }
@@ -1100,12 +1184,13 @@ impl App {
     // ───────────────────────── диалоги ─────────────────────────
 
     fn dialogs(&mut self, ctx: &egui::Context) {
+        self.skin_editor_dialog(ctx);
         self.mod_info_dialog(ctx);
         self.project_dialog(ctx);
         self.inst_dialogs(ctx);
 		self.import_dialog(ctx);
         self.update_dialog_ui(ctx);
-        let modal_frame = Frame::new().fill(PANEL()).corner_radius(14).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
+        let modal_frame = Frame::new().fill(PANEL()).corner_radius(rr(14)).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
 
         if self.create.open {
             let r = egui::Modal::new(Id::new("create")).frame(modal_frame).show(ctx, |ui| {
@@ -1116,9 +1201,9 @@ impl App {
                     let (r, resp) = ui.allocate_exact_size(Vec2::splat(72.0), Sense::click());
                     let t = hover_anim(ui, resp.id, resp.hovered());
                     if let Some(p) = &self.create.icon {
-                        egui::Image::from_uri(crate::sys::file_uri(p)).corner_radius(14).paint_at(ui, r);
+                        egui::Image::from_uri(crate::sys::file_uri(p)).corner_radius(rr(14)).paint_at(ui, r);
                     } else {
-                        ui.painter().rect_filled(r, 14, RAISED().lerp_to_gamma(HOVER(), t));
+                        ui.painter().rect_filled(r, rr(14), RAISED().lerp_to_gamma(HOVER(), t));
                         icon(ui.painter(), Icon::Image, Rect::from_center_size(r.center(), Vec2::splat(26.0)), TEXT_DIM());
                     }
                     if resp.on_hover_text("Выбрать картинку").clicked() {
@@ -1291,7 +1376,7 @@ impl App {
             let tip = if self.ely.show_pass { "Скрыть пароль" } else { "Показать пароль" };
             let (r, resp) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
             let t = hover_anim(ui, resp.id, resp.hovered());
-            ui.painter().rect_filled(r, 8, RAISED().lerp_to_gamma(HOVER(), t));
+            ui.painter().rect_filled(r, rr(8), RAISED().lerp_to_gamma(HOVER(), t));
             eye_icon(ui.painter(), r.shrink(8.0), if self.ely.show_pass { accent() } else { TEXT_DIM() }, !self.ely.show_pass);
             if resp.on_hover_text(tip).clicked() {
                 self.ely.show_pass = !self.ely.show_pass;
@@ -1359,23 +1444,23 @@ pub fn fmt_ago(t: Option<DateTime<Utc>>) -> String {
     }
 }
 
-fn nav_button(ui: &mut Ui, ic: Icon, active: bool, tip: &str) -> (Rect, egui::Response) {
+pub(crate) fn nav_button(ui: &mut Ui, ic: Icon, active: bool, tip: &str) -> (Rect, egui::Response) {
     let (r, resp) = ui.allocate_exact_size(Vec2::splat(42.0), Sense::click());
     let t = hover_anim(ui, resp.id, resp.hovered());
     let a = ui.ctx().animate_bool_with_time(resp.id.with("act"), active, 0.18);
     let bg = Color32::TRANSPARENT.lerp_to_gamma(HOVER(), (t * 0.8).max(a));
-    ui.painter().rect_filled(r, 10, bg);
+    ui.painter().rect_filled(r, rr(10), bg);
     let col = TEXT_DIM().lerp_to_gamma(TEXT(), t.max(a));
     icon(ui.painter(), ic, Rect::from_center_size(r.center(), Vec2::splat(21.0)), if active { accent().lerp_to_gamma(TEXT(), 0.15) } else { col });
     let resp = resp.on_hover_text(tip);
     (r, resp)
 }
 
-fn window_button(ui: &mut Ui, ic: Icon, close: bool) -> egui::Response {
+pub(crate) fn window_button(ui: &mut Ui, ic: Icon, close: bool) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(34.0, 30.0), Sense::click());
     let t = hover_anim(ui, resp.id, resp.hovered());
     let bg = if close { DANGER() } else { HOVER() };
-    ui.painter().rect_filled(r, 7, Color32::TRANSPARENT.lerp_to_gamma(bg, t));
+    ui.painter().rect_filled(r, rr(7), Color32::TRANSPARENT.lerp_to_gamma(bg, t));
     icon(ui.painter(), ic, Rect::from_center_size(r.center(), Vec2::splat(15.0)), TEXT_DIM().lerp_to_gamma(if close { Color32::WHITE } else { TEXT() }, t));
     resp
 }
@@ -1383,32 +1468,53 @@ fn window_button(ui: &mut Ui, ic: Icon, close: bool) -> egui::Response {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         self.tick(ui);
-		ui.painter().rect_filled(ui.max_rect(), 0, BG());
+        self.resolve_pending_font(&ui.ctx().clone());
+		ui.painter().rect_filled(ui.max_rect(), rr(0), BG());
 		self.mouse_history(ui);
 		self.file_drop(ui.ctx());
 
-        egui::Panel::left("nav")
-            .exact_size(64.0)
-            .resizable(false)
-            .show_separator_line(false)
-            .frame(Frame::new().fill(BG()))
-            .show_inside(ui, |ui| self.sidebar(ui));
+        let nav = self.prefs.nav;
+        use crate::look::Nav;
+        if matches!(nav, Nav::Side | Nav::Wide) {
+            egui::Panel::left("nav")
+                .exact_size(if nav == Nav::Wide { 224.0 } else { 64.0 })
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(Frame::new().fill(BG()))
+                .show_inside(ui, |ui| if nav == Nav::Wide { self.sidebar_wide(ui) } else { self.sidebar(ui) });
+        }
 
         egui::Panel::top("top")
             .exact_size(52.0)
             .resizable(false)
             .show_separator_line(false)
             .frame(Frame::new().fill(BG()))
-            .show_inside(ui, |ui| self.topbar(ui));
+            .show_inside(ui, |ui| if nav == Nav::Top { self.topnav(ui) } else { self.topbar(ui) });
+
+        if nav == Nav::Dock {
+            egui::Panel::bottom("dock")
+                .exact_size(80.0)
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(Frame::new().fill(BG()))
+                .show_inside(ui, |ui| self.dock(ui));
+        }
+        let rad = (14.0 * round_k()).round().min(255.0) as u8;
+        let (corners, outer) = match nav {
+            Nav::Side | Nav::Wide => (CornerRadius { nw: rad, ne: 0, sw: 0, se: 0 }, Margin::ZERO),
+            Nav::Top => (CornerRadius::same(rad), Margin { left: 8, right: 8, top: 8, bottom: 8 }),
+            Nav::Dock => (CornerRadius::same(rad), Margin { left: 8, right: 8, top: 0, bottom: 0 }),
+        };
+        let d = density();
 
         egui::CentralPanel::default()
-            .frame(Frame::new().fill(CONTENT()).corner_radius(CornerRadius { nw: 14, ne: 0, sw: 0, se: 0 }).stroke(Stroke::new(1.0, BORDER())))
+            .frame(Frame::new().fill(CONTENT()).corner_radius(corners).outer_margin(outer).stroke(Stroke::new(1.0, BORDER())))
             .show_inside(ui, |ui| {
                 if !self.ready {
                     self.splash(ui);
                     return;
                 }
-				if self.page != Page::Home { self.draw_cat(ui); }
+                self.draw_cat(ui);
                 let now = Self::now(ui);
                 let t = if self.prefs.animations { smooth((((now - self.page_changed) / 0.22) as f32).clamp(0.0, 1.0)) } else { 1.0 };
                 if t < 1.0 {
@@ -1418,7 +1524,7 @@ impl eframe::App for App {
                 egui::ScrollArea::vertical().id_salt(format!("{page:?}")).auto_shrink(false).show(ui, |ui| {
                     ui.multiply_opacity(t);
                     Frame::new()
-                        .inner_margin(Margin { left: 32, right: 32, top: (26.0 + (1.0 - t) * 10.0) as i8, bottom: 40 })
+                        .inner_margin(Margin { left: (32.0 * d) as i8, right: (32.0 * d) as i8, top: (26.0 * d + (1.0 - t) * 10.0) as i8, bottom: 40 })
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
                             match page {

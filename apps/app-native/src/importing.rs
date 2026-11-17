@@ -21,7 +21,7 @@ impl App {
 			return;
 		}
 		let response = egui::Modal::new(Id::new("import-pack"))
-			.frame(egui::Frame::new().fill(PANEL()).corner_radius(14).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22)))
+			.frame(egui::Frame::new().fill(PANEL()).corner_radius(rr(14)).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22)))
 			.show(ctx, |ui| {
 				ui.set_width(460.0);
 				ui.spacing_mut().item_spacing.y = 12.0;

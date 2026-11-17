@@ -29,6 +29,10 @@ pub struct Inst {
     pub created: DateTime<Utc>,
 }
 
+/// Иконка sfatm в списке модов (банкомат из мода); байты отдаются egui при старте.
+pub const SFATM_ICON: &str = "bytes://sfatm.png";
+pub const SFATM_ICON_BYTES: &[u8] = include_bytes!("../assets/sfatm.png");
+
 #[derive(Clone, Debug)]
 pub struct ContentRow {
     pub file_path: String,
@@ -144,6 +148,10 @@ pub struct SkinItem {
 }
 
 pub enum Msg {
+    /// Донор для редактора скина: имя и пиксели 64×64 (или ошибка)
+    SkinDonor(Result<(String, Vec<crate::skinedit::Px>), String>),
+    /// Скин из редактора сохранён — выделить его
+    SkinSaved(String),
     Ready,
     InitError(String),
     Instances(Vec<Inst>),
@@ -195,7 +203,10 @@ pub enum Pick {
     InstanceIcon(String),
     NewInstanceIcon,
     SkinFile,
+    /// Скин-донор одежды для редактора
+    DonorSkin,
     CatImage,
+    FontFile,
 }
 
 // ───────────────────────── backend ─────────────────────────
@@ -299,17 +310,11 @@ impl Backend {
 
     pub fn run(&self, id: String) {
         self.task(|tx| async move {
-            // наш мод sfatm обновляется до запуска; сам движок проверит ещё раз, но уже без загрузки
-            if PerformanceSettings::get().await.sfatm_autoupdate {
-                match instance::sfatm_update(&id).await {
-                    Ok(Some(u)) => {
-                        let _ = tx.send(Msg::Toast(format!("sfatm обновлён: {} → {}", u.from, u.to), false));
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        let _ = tx.send(Msg::Toast(format!("Не удалось обновить sfatm, запускаю старую версию: {e}"), true));
-                    }
-                }
+            // наш мод sfatm обновляется до запуска (прогресс — в «Загрузках»); движок проверит ещё раз, но уже без загрузки
+            if PerformanceSettings::get().await.sfatm_autoupdate
+                && let Some((text, error)) = crate::sfupdate::before_launch(&id).await
+            {
+                let _ = tx.send(Msg::Toast(text, error));
             }
             if let Err(e) = instance::run(&id, instance::QuickPlayType::None).await {
                 Self::toast_err(&tx, "Не удалось запустить", e);
@@ -455,7 +460,17 @@ impl Backend {
                             file_path: c.file_path,
                         })
                         .collect();
-                    rows.sort_by_key(|r| r.name.to_lowercase());
+                    let latest = crate::sfupdate::known_latest();
+                    for r in rows.iter_mut() {
+                        let Some(v) = crate::sfupdate::file_version(&r.file_name).map(str::to_string) else { continue };
+                        r.has_update = latest.as_deref().is_some_and(|l| theseus::sfatm_update::newer(l, &v));
+                        r.name = "sfatm".into();
+                        r.author = "TrollLand".into();
+                        r.version = v;
+                        r.icon_url = Some(SFATM_ICON.into());
+                    }
+                    // наш мод — всегда первым
+                    rows.sort_by_key(|r| (r.icon_url.as_deref() != Some(SFATM_ICON), r.name.to_lowercase()));
                     let _ = tx.send(Msg::Content(id, rows));
                 }
                 Err(e) => Self::toast_err(&tx, "Не удалось прочитать моды", e),
@@ -482,16 +497,43 @@ impl Backend {
         self.load_content(id_for_reload);
     }
 
-    pub fn update_content(&self, id: String, files: Vec<String>) {
+    /// Обновить моды сборки. sfatm обновляется своим путём (GitHub), остальное — через Modrinth.
+    /// Ошибки собираются в одно уведомление, а не по уведомлению на каждый мод.
+    /// `running` — в сборке идёт игра: движок не даст менять моды, поэтому только одно
+    /// понятное уведомление, а sfatm ставится в очередь «после выхода из игры».
+    pub fn update_content(&self, id: String, files: Vec<String>, running: bool) {
+        let (sf, files): (Vec<String>, Vec<String>) = files.into_iter().partition(|f| {
+            let name = Path::new(f).file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            crate::sfupdate::file_version(name).is_some()
+        });
+        if !sf.is_empty() {
+            let busy = if running { [id.clone()].into() } else { Default::default() };
+            self.sfatm_sync(vec![id.clone()], busy, true);
+        }
+        if files.is_empty() {
+            return;
+        }
+        if running {
+            let _ = self.tx.send(Msg::Toast("Игра запущена — моды можно обновить после выхода из неё".into(), true));
+            return;
+        }
         self.task(|tx| async move {
-            let mut ok = 0;
+            let (mut ok, mut failed, mut first_err) = (0, 0, None);
             for f in &files {
                 match instance::update_project(&id, f, Some(true)).await {
                     Ok(_) => ok += 1,
-                    Err(e) => Self::toast_err(&tx, "Ошибка обновления", e),
+                    Err(e) => {
+                        failed += 1;
+                        first_err.get_or_insert_with(|| e.to_string());
+                    }
                 }
             }
-            let _ = tx.send(Msg::Toast(format!("Обновлено: {ok}"), false));
+            let text = match first_err {
+                None => format!("Обновлено: {ok}"),
+                Some(e) if ok == 0 => format!("Не удалось обновить ({failed}): {e}"),
+                Some(e) => format!("Обновлено: {ok}, не удалось: {failed} — {e}"),
+            };
+            let _ = tx.send(Msg::Toast(text, failed > 0));
             let _ = tx.send(Msg::InstallDone(id));
         });
     }
@@ -865,6 +907,53 @@ impl Backend {
         self.load_skins();
     }
 
+    /// Скин по нику — в редактор как донор одежды (в библиотеку не добавляется).
+    pub fn fetch_donor(&self, nick: String, elyby: bool) {
+        self.task(|tx| async move {
+            let res = async {
+                let f = theseus::skin_library::fetch_by_nick(&nick, if elyby { "elyby" } else { "mojang" }).await.map_err(err)?;
+                let i = image::load_from_memory(&f.texture).map_err(err)?.to_rgba8();
+                let px = crate::skinedit::to_64(i.width(), i.height(), i.as_raw()).ok_or("скин не 64×64")?;
+                Ok::<_, String>((f.name, px))
+            }
+            .await;
+            let _ = tx.send(Msg::SkinDonor(res.map_err(|e| format!("Не удалось взять скин {nick}: {e}"))));
+        });
+    }
+
+    /// Сохранить скин из редактора. `replace` — заменить этот скин (id меняется вместе с картинкой,
+    /// поэтому новый добавляется, избранное и «надет» переносятся, старый удаляется).
+    pub fn save_edited_skin(&self, replace: Option<String>, png: Vec<u8>, name: String, slim: bool, favorite: bool) {
+        self.task(|tx| async move {
+            use theseus::skin_library::{self as lib, LibrarySkinVariant};
+            let res = async {
+                let v = if slim { LibrarySkinVariant::Slim } else { LibrarySkinVariant::Classic };
+                let mut new = lib::add(png, name, Some(v), None, "editor".into()).await.map_err(err)?;
+                if let Some(old) = replace.filter(|o| *o != new.id) {
+                    let l = lib::get().await.map_err(err)?;
+                    new.favorite = favorite;
+                    new.variant = v;
+                    lib::update(new.clone()).await.map_err(err)?;
+                    for (acc, id) in &l.equipped {
+                        if *id == old {
+                            lib::set_equipped(acc.clone(), new.id.clone()).await.map_err(err)?;
+                        }
+                    }
+                    lib::remove(&old).await.map_err(err)?;
+                }
+                Ok::<_, String>(new.id)
+            }
+            .await;
+            match res {
+                Ok(id) => {
+                    let _ = tx.send(Msg::SkinSaved(id));
+                    let _ = tx.send(Msg::Toast("Скин сохранён".into(), false));
+                }
+                Err(e) => Self::toast_err(&tx, "Не удалось сохранить скин", e),
+            }
+        });
+    }
+
     pub fn update_skin(&self, id: String, name: Option<String>, favorite: Option<bool>, slim: Option<bool>) {
         self.task(|tx| async move {
             let res = async {
@@ -1129,7 +1218,9 @@ impl Backend {
             let dlg = rfd::AsyncFileDialog::new();
             let dlg = match what {
                 Pick::SkinFile => dlg.set_title("Выберите скин (PNG 64×64)").add_filter("PNG", &["png"]),
+                Pick::DonorSkin => dlg.set_title("Скин, с которого взять одежду").add_filter("PNG", &["png"]),
                 Pick::CatImage => dlg.set_title("Свой котик: картинка или GIF").add_filter("Картинки", &["png", "jpg", "jpeg", "gif", "webp"]),
+                Pick::FontFile => dlg.set_title("Свой шрифт").add_filter("Шрифты", &["ttf", "otf", "ttc"]),
                 _ => dlg.set_title("Выберите картинку").add_filter("Картинки", &["png", "jpg", "jpeg", "webp", "gif"]),
             };
             if let Some(f) = dlg.pick_file().await {

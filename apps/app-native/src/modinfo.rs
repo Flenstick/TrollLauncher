@@ -210,10 +210,10 @@ pub fn md_view(ui: &mut Ui, blocks: &[Blk]) {
                 ui.label(job);
             }
             Blk::Image(url) => {
-                ui.add(egui::Image::from_uri(url.clone()).max_width(w.min(640.0)).max_height(420.0).corner_radius(8));
+                ui.add(egui::Image::from_uri(url.clone()).max_width(w.min(640.0)).max_height(420.0).corner_radius(rr(8)));
             }
             Blk::Code(c) => {
-                egui::Frame::new().fill(INPUT()).corner_radius(8).inner_margin(10).show(ui, |ui| {
+                egui::Frame::new().fill(INPUT()).corner_radius(rr(8)).inner_margin(10).show(ui, |ui| {
                     ui.set_width(w - 20.0);
                     ui.label(egui::RichText::new(c).font(mono(12.5)).color(TEXT_DIM()));
                 });
@@ -248,7 +248,7 @@ impl App {
         let mut close = false;
         let kind = (row.kind as usize).min(3);
         let screen = ctx.content_rect();
-        let frame = egui::Frame::new().fill(PANEL()).corner_radius(14).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
+        let frame = egui::Frame::new().fill(PANEL()).corner_radius(rr(14)).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
 
         let r = egui::Modal::new(Id::new("mod-info")).frame(frame).show(ctx, |ui| {
             ui.set_width(760.0f32.min(screen.width() - 80.0));
@@ -259,8 +259,8 @@ impl App {
                 let (ir, _) = ui.allocate_exact_size(Vec2::splat(72.0), Sense::hover());
                 match &row.icon_url {
                     Some(u) => {
-                        ui.painter().rect_filled(ir, 14, RAISED());
-                        egui::Image::from_uri(u.clone()).corner_radius(14).paint_at(ui, ir);
+                        ui.painter().rect_filled(ir, rr(14), RAISED());
+                        egui::Image::from_uri(u.clone()).corner_radius(rr(14)).paint_at(ui, ir);
                     }
                     None => {
                         let (seed, hue) = seed_of(&row.name);
@@ -317,7 +317,7 @@ impl App {
                 ];
                 ui.columns(4, |c| {
                     for (i, (k, v)) in stats.iter().enumerate() {
-                        egui::Frame::new().fill(RAISED()).corner_radius(10).inner_margin(Margin::symmetric(12, 8)).show(&mut c[i], |ui| {
+                        egui::Frame::new().fill(RAISED()).corner_radius(rr(10)).inner_margin(Margin::symmetric(12, 8)).show(&mut c[i], |ui| {
                             ui.set_width(ui.available_width());
                             ui.spacing_mut().item_spacing.y = 1.0;
                             label(ui, v.clone(), semibold(15.0), TEXT());
@@ -343,7 +343,7 @@ impl App {
                 label(ui, if row.enabled { "Включён" } else { "Выключен" }, medium(13.5), TEXT_DIM());
                 ui.add_space(8.0);
                 if row.has_update && button(ui, "Обновить", Some(Icon::Download), Kind::Primary, 34.0).clicked() {
-                    self.be.update_content(iid.clone(), vec![row.file_path.clone()]);
+                    self.be.update_content(iid.clone(), vec![row.file_path.clone()], self.running.contains_key(&iid));
                 }
                 if let Some(pid) = &row.project_id {
                     let slug = row.slug.clone().unwrap_or_else(|| pid.clone());
@@ -576,16 +576,16 @@ impl App {
         let details = self.mod_details.get(&h.project_id).cloned();
         let screen = ctx.content_rect();
         let mut close = false;
-        let frame = egui::Frame::new().fill(PANEL()).corner_radius(14).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
+        let frame = egui::Frame::new().fill(PANEL()).corner_radius(rr(14)).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
         let site = if h.source == "cf" { "CurseForge" } else { "Modrinth" };
         let r = egui::Modal::new(Id::new("project")).frame(frame).show(ctx, |ui| {
             ui.set_width(820.0f32.min(screen.width() - 80.0));
             ui.spacing_mut().item_spacing.y = 10.0;
             ui.horizontal(|ui| {
                 let (ir, _) = ui.allocate_exact_size(Vec2::splat(80.0), Sense::hover());
-                ui.painter().rect_filled(ir, 16, RAISED());
+                ui.painter().rect_filled(ir, rr(16), RAISED());
                 if let Some(u) = h.icon_url.as_ref().filter(|u| !u.is_empty()) {
-                    egui::Image::from_uri(u.clone()).corner_radius(16).paint_at(ui, ir);
+                    egui::Image::from_uri(u.clone()).corner_radius(rr(16)).paint_at(ui, ir);
                 }
                 ui.add_space(6.0);
                 ui.vertical(|ui| {
@@ -611,7 +611,7 @@ impl App {
             let n = stats.len();
             ui.columns(n, |c| {
                 for (i, (k, v)) in stats.iter().enumerate() {
-                    egui::Frame::new().fill(RAISED()).corner_radius(10).inner_margin(Margin::symmetric(12, 8)).show(&mut c[i], |ui| {
+                    egui::Frame::new().fill(RAISED()).corner_radius(rr(10)).inner_margin(Margin::symmetric(12, 8)).show(&mut c[i], |ui| {
                         ui.set_width(ui.available_width());
                         ui.spacing_mut().item_spacing.y = 1.0;
                         label(ui, v.clone(), semibold(15.0), TEXT());
@@ -673,7 +673,7 @@ impl App {
                     ("Галерея", Some(Ok(d))) => {
                         let w = ui.available_width();
                         for url in &d.gallery {
-                            ui.add(egui::Image::from_uri(url.clone()).max_width(w).corner_radius(10));
+                            ui.add(egui::Image::from_uri(url.clone()).max_width(w).corner_radius(rr(10)));
                         }
                     }
                     ("Версии", _) => match self.proj_versions.get(&h.project_id) {
@@ -682,7 +682,7 @@ impl App {
                         }
                         Some(list) => {
                             for v in list {
-                                egui::Frame::new().fill(RAISED()).corner_radius(10).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+                                egui::Frame::new().fill(RAISED()).corner_radius(rr(10)).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
                                     ui.set_width(ui.available_width());
                                     ui.horizontal(|ui| {
                                         let (kc, kt) = match v.kind.as_str() {

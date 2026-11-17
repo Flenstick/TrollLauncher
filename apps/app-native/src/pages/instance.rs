@@ -23,7 +23,7 @@ impl App {
             Self::inst_icon(ui, r, &inst, 18.0);
             let t = hover_anim(ui, resp.id, resp.hovered());
             if t > 0.01 {
-                ui.painter().rect_filled(r, 18, Color32::from_black_alpha((150.0 * t) as u8));
+                ui.painter().rect_filled(r, rr(18), Color32::from_black_alpha((150.0 * t) as u8));
                 icon(ui.painter(), Icon::Image, Rect::from_center_size(r.center() - vec2(0.0, 8.0), Vec2::splat(24.0)), Color32::WHITE.gamma_multiply(t));
                 text_at(ui.painter(), r.center() + vec2(0.0, 16.0), Align2::CENTER_CENTER, "Сменить", semibold(12.0), Color32::WHITE.gamma_multiply(t));
             }
@@ -149,7 +149,7 @@ impl App {
                     self.go(ui, Page::Browse);
                 }
                 if !updates.is_empty() && button(ui, &format!("Обновить всё  {}", updates.len()), Some(Icon::Download), Kind::Secondary, 34.0).clicked() {
-                    self.be.update_content(id.to_string(), updates.clone());
+                    self.be.update_content(id.to_string(), updates.clone(), self.running.contains_key(id));
                 }
                 if icon_button(ui, Icon::Refresh, 34.0, "Обновить список").clicked() {
                     self.be.load_content(id.to_string());
@@ -165,7 +165,7 @@ impl App {
             .collect();
 
         let mut open_info: Option<ContentRow> = None;
-        egui::Frame::new().fill(PANEL()).corner_radius(12).stroke(Stroke::new(1.0, BORDER())).inner_margin(6).show(ui, |ui| {
+        egui::Frame::new().fill(PANEL()).corner_radius(rr(12)).stroke(Stroke::new(1.0, BORDER())).inner_margin(6).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 0.0;
             let w = ui.available_width();
@@ -178,12 +178,12 @@ impl App {
                 let (r, resp) = ui.allocate_exact_size(vec2(w, 54.0), Sense::click());
                 let t = hover_anim(ui, resp.id, resp.hovered());
                 let p = ui.painter().clone();
-                p.rect_filled(r, 8, RAISED().gamma_multiply(t));
+                p.rect_filled(r, rr(8), RAISED().gamma_multiply(t));
                 let ir = Rect::from_min_size(pos2(r.left() + 12.0, r.center().y - 17.0), Vec2::splat(34.0));
                 match &m.icon_url {
                     Some(u) => {
-                        p.rect_filled(ir, 8, RAISED());
-                        egui::Image::from_uri(u.clone()).corner_radius(8).paint_at(ui, ir);
+                        p.rect_filled(ir, rr(8), RAISED());
+                        egui::Image::from_uri(u.clone()).corner_radius(rr(8)).paint_at(ui, ir);
                     }
                     None => {
                         let (seed, hue) = seed_of(&m.name);
@@ -192,7 +192,7 @@ impl App {
                 }
                 let dim = if m.enabled { 1.0 } else { 0.45 };
                 if !m.enabled {
-                    p.rect_filled(ir, 8, PANEL().gamma_multiply(0.5));
+                    p.rect_filled(ir, rr(8), PANEL().gamma_multiply(0.5));
                 }
                 let tw = col_ver - ir.right() - 24.0;
                 text_wrap(&p, pos2(ir.right() + 12.0, r.center().y - 17.0), &m.name, semibold(14.0), TEXT().gamma_multiply(dim), tw, 1);
@@ -205,10 +205,10 @@ impl App {
                     let br = Rect::from_min_size(pos2(vr.right() + 10.0, r.center().y - 11.0), vec2(g.size().x + 14.0, 22.0));
                     let bresp = ui.interact(br, resp.id.with("upd"), Sense::click());
                     let bt = hover_anim(ui, bresp.id, bresp.hovered());
-                    p.rect_filled(br, 6, accent().gamma_multiply(0.14 + bt * 0.14));
+                    p.rect_filled(br, rr(6), accent().gamma_multiply(0.14 + bt * 0.14));
                     p.galley(br.center() - g.size() / 2.0, g, accent());
                     if bresp.on_hover_text("Обновить до последней версии").clicked() {
-                        self.be.update_content(id.to_string(), vec![m.file_path.clone()]);
+                        self.be.update_content(id.to_string(), vec![m.file_path.clone()], self.running.contains_key(id));
                     }
                 }
                 let tr = Rect::from_center_size(pos2(r.right() - 89.0, r.center().y), vec2(38.0, 22.0));
@@ -275,8 +275,8 @@ impl App {
                 for path in row {
                     let (r, resp) = ui.allocate_exact_size(vec2(cw, cw * 9.0 / 16.0), Sense::click());
                     let t = hover_anim(ui, resp.id, resp.hovered());
-                    ui.painter().rect_filled(r, 10, RAISED());
-                    egui::Image::from_uri(crate::sys::file_uri(path)).corner_radius(10).paint_at(ui, r.shrink(2.0 - t * 2.0));
+                    ui.painter().rect_filled(r, rr(10), RAISED());
+                    egui::Image::from_uri(crate::sys::file_uri(path)).corner_radius(rr(10)).paint_at(ui, r.shrink(2.0 - t * 2.0));
                     let name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
                     let cap = Rect::from_min_max(pos2(r.left(), r.bottom() - 26.0), r.max);
                     ui.painter().rect_filled(cap, egui::CornerRadius { nw: 0, ne: 0, sw: 10, se: 10 }, Color32::from_black_alpha((80.0 + 90.0 * t) as u8));
@@ -317,7 +317,7 @@ impl App {
             }
         }
         let text = self.logs.get(id).cloned();
-        egui::Frame::new().fill(INPUT()).corner_radius(12).stroke(Stroke::new(1.0, BORDER())).inner_margin(16).show(ui, |ui| {
+        egui::Frame::new().fill(INPUT()).corner_radius(rr(12)).stroke(Stroke::new(1.0, BORDER())).inner_margin(16).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 2.0;
             let w = ui.available_width();

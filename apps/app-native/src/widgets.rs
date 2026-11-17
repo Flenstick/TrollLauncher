@@ -81,7 +81,7 @@ pub fn section_title(ui: &mut Ui, s: &str) {
 
 // ───────────────────────── иконки ─────────────────────────
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Icon {
     Home,
     Library,
@@ -130,10 +130,176 @@ pub fn eye_icon(p: &Painter, r: Rect, c: Color32, crossed: bool) {
     }
 }
 
+/// Имена иконок — они же имена файлов в своих наборах.
+pub const ICON_NAMES: [(Icon, &str); 30] = [
+    (Icon::Home, "home"), (Icon::Library, "library"), (Icon::Browse, "browse"), (Icon::Skins, "skins"), (Icon::Plus, "plus"),
+    (Icon::Settings, "settings"), (Icon::Play, "play"), (Icon::Stop, "stop"), (Icon::Search, "search"), (Icon::Download, "download"),
+    (Icon::Close, "close"), (Icon::Min, "minimize"), (Icon::Max, "maximize"), (Icon::Back, "back"), (Icon::Forward, "forward"),
+    (Icon::Folder, "folder"), (Icon::Check, "check"), (Icon::User, "user"), (Icon::Clock, "clock"), (Icon::Cube, "cube"),
+    (Icon::More, "more"), (Icon::Server, "server"), (Icon::Heart, "heart"), (Icon::Star, "star"), (Icon::Refresh, "refresh"),
+    (Icon::Copy, "copy"), (Icon::Share, "share"), (Icon::Globe, "globe"), (Icon::Bell, "bell"), (Icon::Image, "image"),
+];
+
+/// Как рисовать иконки (выбирается в Настройках → Внешний вид).
+#[derive(Clone)]
+pub enum IconStyle {
+    /// Линии с множителем толщины
+    Lines(f32),
+    /// Линии, у каждой иконки свой цвет (как в Prism)
+    Color,
+    /// Пиксель-арт 12×12, нарисованный вручную (`pixicons.rs`)
+    Pixel,
+    /// Эмодзи из шрифта
+    Emoji,
+    /// Свой набор: картинка для иконки → uri в загрузчике egui; `bool` — красить в цвет темы
+    Pack(std::sync::Arc<std::collections::HashMap<Icon, String>>, bool),
+}
+
+static ICON_STYLE: std::sync::RwLock<Option<IconStyle>> = std::sync::RwLock::new(None);
+
+pub fn set_icon_style(st: IconStyle) {
+    *ICON_STYLE.write().unwrap() = Some(st);
+}
+
 pub fn icon(p: &Painter, ic: Icon, r: Rect, c: Color32) {
+    let st = ICON_STYLE.read().unwrap().clone().unwrap_or(IconStyle::Lines(1.0));
+    icon_styled(p, ic, r, c, &st);
+}
+
+/// Цвет иконки в стиле «Цветные»; окна/навигация остаются цвета текста.
+fn icon_hue(ic: Icon) -> Option<u32> {
+    Some(match ic {
+        Icon::Home | Icon::Download | Icon::Share | Icon::Globe | Icon::Search => 0x4ea1ff,
+        Icon::Library | Icon::Clock => 0xe6a23c,
+        Icon::Browse | Icon::Refresh => 0x36c2a0,
+        Icon::Skins => 0xe0679f,
+        Icon::Plus | Icon::Play | Icon::Check => 0x5cc85c,
+        Icon::Stop => 0xe05252,
+        Icon::Settings | Icon::Copy => 0xa0aab8,
+        Icon::Folder => 0xf0b84a,
+        Icon::User => 0x8e8cff,
+        Icon::Cube => 0x8fd36a,
+        Icon::Server => 0x7fa6c9,
+        Icon::Heart => 0xff5a6e,
+        Icon::Star | Icon::Bell => 0xffc93d,
+        Icon::Image => 0xb07cff,
+        _ => return None,
+    })
+}
+
+fn icon_emoji(ic: Icon) -> &'static str {
+    match ic {
+        Icon::Home => "🏠", Icon::Library => "📚", Icon::Browse => "🧭", Icon::Skins => "👕", Icon::Plus => "➕",
+        Icon::Settings => "⚙", Icon::Play => "▶", Icon::Stop => "⏹", Icon::Search => "🔍", Icon::Download => "⬇",
+        Icon::Close => "✖", Icon::Min => "➖", Icon::Max => "⬜", Icon::Back => "⬅", Icon::Forward => "➡",
+        Icon::Folder => "📁", Icon::Check => "✔", Icon::User => "👤", Icon::Clock => "🕓", Icon::Cube => "📦",
+        Icon::More => "⋯", Icon::Server => "🖧", Icon::Heart => "❤", Icon::Star => "⭐", Icon::Refresh => "🔄",
+        Icon::Copy => "📋", Icon::Share => "🔗", Icon::Globe => "🌐", Icon::Bell => "🔔", Icon::Image => "🖼",
+    }
+}
+
+pub fn icon_styled(p: &Painter, ic: Icon, r: Rect, c: Color32, st: &IconStyle) {
+    match st {
+        IconStyle::Lines(w) => p.extend(icon_shapes(ic, r, c, *w)),
+        IconStyle::Color => {
+            let col = icon_hue(ic).map(|h| hex(h).lerp_to_gamma(c, 0.12).gamma_multiply(c.a() as f32 / 255.0)).unwrap_or(c);
+            p.extend(icon_shapes(ic, r, col, 1.1));
+        }
+        IconStyle::Pixel => crate::pixicons::draw(p, ic, r, c),
+        // окно и стрелки эмодзи выглядят чужими — их рисуем линиями
+        IconStyle::Emoji if matches!(ic, Icon::Close | Icon::Min | Icon::Max | Icon::Back | Icon::Forward | Icon::More) => p.extend(icon_shapes(ic, r, c, 1.0)),
+        IconStyle::Emoji => {
+            p.text(r.center(), Align2::CENTER_CENTER, icon_emoji(ic), egui::FontId::proportional(r.height() * 0.92), c);
+        }
+        IconStyle::Pack(map, tint) => {
+            let Some(uri) = map.get(&ic) else {
+                p.extend(icon_shapes(ic, r, c, 1.0));
+                return;
+            };
+            let img = egui::Image::from_uri(uri.clone());
+            let px = (r.size() * p.ctx().pixels_per_point()).max(Vec2::splat(16.0));
+            if let Ok(egui::load::TexturePoll::Ready { texture }) = img.load_for_size(p.ctx(), px) {
+                let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+                let tint = if *tint { c } else { Color32::WHITE.gamma_multiply(c.a() as f32 / 255.0) };
+                // вписать с сохранением пропорций
+                let ts = texture.size;
+                let k = (r.width() / ts.x.max(1.0)).min(r.height() / ts.y.max(1.0));
+                p.image(texture.id, Rect::from_center_size(r.center(), ts * k), uv, tint);
+            }
+        }
+    }
+}
+
+/// Встроенная иконка в SVG (шаблон своего набора).
+pub fn icon_svg(ic: Icon) -> String {
+    let r = Rect::from_min_size(Pos2::ZERO, Vec2::splat(24.0));
+    let mut body = String::new();
+    let col = |c: Color32| if c == Color32::TRANSPARENT { "none" } else { "#ffffff" };
+    for sh in icon_shapes(ic, r, Color32::WHITE, 1.0) {
+        match sh {
+            Shape::Path(ps) => {
+                let d: Vec<String> = ps.points.iter().enumerate().map(|(i, q)| format!("{}{:.2} {:.2}", if i == 0 { "M" } else { "L" }, q.x, q.y)).collect();
+                let stroke = match &ps.stroke.color {
+                    egui::epaint::ColorMode::Solid(c) if ps.stroke.width > 0.0 && *c != Color32::TRANSPARENT => format!(r##" stroke="#ffffff" stroke-width="{:.2}" stroke-linecap="round" stroke-linejoin="round""##, ps.stroke.width),
+                    _ => String::new(),
+                };
+                body += &format!("  <path d=\"{}{}\" fill=\"{}\"{stroke}/>\n", d.join(" "), if ps.closed { " Z" } else { "" }, col(ps.fill));
+            }
+            Shape::Circle(cs) => {
+                let stroke = if cs.stroke.width > 0.0 { format!(r##" stroke="#ffffff" stroke-width="{:.2}""##, cs.stroke.width) } else { String::new() };
+                body += &format!("  <circle cx=\"{:.2}\" cy=\"{:.2}\" r=\"{:.2}\" fill=\"{}\"{stroke}/>\n", cs.center.x, cs.center.y, cs.radius, col(cs.fill));
+            }
+            Shape::Ellipse(es) => {
+                body += &format!(
+                    "  <ellipse cx=\"{:.2}\" cy=\"{:.2}\" rx=\"{:.2}\" ry=\"{:.2}\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"{:.2}\"/>\n",
+                    es.center.x, es.center.y, es.radius.x, es.radius.y, es.stroke.width
+                );
+            }
+            Shape::Rect(rs) => {
+                let q = rs.rect;
+                let stroke = if rs.stroke.width > 0.0 { format!(r##" stroke="#ffffff" stroke-width="{:.2}""##, rs.stroke.width) } else { String::new() };
+                body += &format!(
+                    "  <rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" rx=\"{:.2}\" fill=\"{}\"{stroke}/>\n",
+                    q.left(), q.top(), q.width(), q.height(), rs.corner_radius.nw as f32, col(rs.fill)
+                );
+            }
+            _ => {}
+        }
+    }
+    format!("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"48\" height=\"48\">\n{body}</svg>\n")
+}
+
+/// Записывает фигуры иконки вместо рисования — чтобы их можно было перерисовать в другом стиле.
+struct Rec(std::cell::RefCell<Vec<Shape>>);
+
+impl Rec {
+    fn add(&self, s: impl Into<Shape>) {
+        self.0.borrow_mut().push(s.into());
+    }
+    fn circle_stroke(&self, c: Pos2, r: f32, s: impl Into<Stroke>) {
+        self.add(Shape::circle_stroke(c, r, s));
+    }
+    fn circle_filled(&self, c: Pos2, r: f32, col: Color32) {
+        self.add(Shape::circle_filled(c, r, col));
+    }
+    fn rect_filled(&self, rect: Rect, rad: impl Into<CornerRadius>, col: Color32) {
+        self.add(Shape::rect_filled(rect, rad, col));
+    }
+    fn rect_stroke(&self, rect: Rect, rad: impl Into<CornerRadius>, s: impl Into<Stroke>, kind: StrokeKind) {
+        self.add(Shape::rect_stroke(rect, rad, s, kind));
+    }
+}
+
+fn icon_shapes(ic: Icon, r: Rect, c: Color32, width: f32) -> Vec<Shape> {
+    let rec = Rec(std::cell::RefCell::new(Vec::new()));
+    icon_rec(&rec, ic, r, c, width);
+    rec.0.into_inner()
+}
+
+fn icon_rec(p: &Rec, ic: Icon, r: Rect, c: Color32, width: f32) {
     let k = r.width() / 24.0;
     let pt = |x: f32, y: f32| r.min + vec2(x, y) * k;
-    let s = Stroke::new(1.7 * k.max(0.75), c);
+    let s = Stroke::new(1.7 * k.max(0.75) * width, c);
     let line = |pts: &[(f32, f32)]| {
         p.add(Shape::line(pts.iter().map(|&(x, y)| pt(x, y)).collect(), s));
     };
@@ -339,7 +505,7 @@ fn paint_button(
         Kind::Danger => (DANGER().lerp_to_gamma(lighten(DANGER(), 0.14), t), Color32::WHITE),
     };
     let r = rect.shrink(press * 1.0);
-    let rad = (rect.height() * 0.25).min(10.0);
+    let rad = (rect.height() * 0.25).min(10.0) * round_k();
     ui.painter().rect_filled(r, rad, bg);
     let content_w = g.size().x + icon_w;
     let mut x = rect.center().x - content_w / 2.0;
@@ -361,7 +527,7 @@ pub fn icon_button_at(ui: &mut Ui, rect: Rect, id: Id, ic: Icon, tip: &str) -> R
     let size = rect.width();
     let resp = ui.interact(rect, id, Sense::click());
     let t = hover_anim(ui, resp.id, resp.hovered());
-    ui.painter().rect_filled(rect, 8, Color32::TRANSPARENT.lerp_to_gamma(HOVER(), t));
+    ui.painter().rect_filled(rect, rr(8), Color32::TRANSPARENT.lerp_to_gamma(HOVER(), t));
     let isz = (size * 0.55).round();
     icon(ui.painter(), ic, Rect::from_center_size(rect.center(), Vec2::splat(isz)), TEXT_DIM().lerp_to_gamma(TEXT(), t));
     if tip.is_empty() { resp } else { resp.on_hover_text(tip) }
@@ -385,7 +551,7 @@ pub fn toggle_at(ui: &mut Ui, r: Rect, id: Id, on: &mut bool) -> Response {
     let t = smooth(ui.ctx().animate_bool_with_time(resp.id, *on, 0.16));
     let h = hover_anim(ui, resp.id, resp.hovered());
     let off_bg = HOVER().lerp_to_gamma(lighten(HOVER(), 0.06), h);
-    ui.painter().rect_filled(r, 11, off_bg.lerp_to_gamma(accent(), t));
+    ui.painter().rect_filled(r, rr(11), off_bg.lerp_to_gamma(accent(), t));
     let x = egui::lerp(r.left() + 11.0..=r.right() - 11.0, t);
     ui.painter().circle_filled(pos2(x, r.center().y), 8.0, Color32::WHITE.gamma_multiply(0.75 + 0.25 * t.max(h)));
     resp
@@ -402,8 +568,7 @@ pub fn checkbox(ui: &mut Ui, on: &mut bool, text: &str) -> Response {
     let h = hover_anim(ui, resp.id, resp.hovered());
     let b = Rect::from_min_size(pos2(r.left(), r.center().y - 9.0), Vec2::splat(18.0));
     ui.painter().rect(
-        b,
-        5,
+        b, rr(5),
         RAISED().lerp_to_gamma(HOVER(), h).lerp_to_gamma(accent(), t),
         Stroke::new(1.0, BORDER().lerp_to_gamma(accent(), t)),
         StrokeKind::Inside,
@@ -428,7 +593,7 @@ pub fn tabs(ui: &mut Ui, id: Id, labels: &[String], sel: &mut usize) -> bool {
             let t = hover_anim(ui, resp.id, resp.hovered());
             let active = i == *sel;
             if !active && t > 0.0 {
-                ui.painter().rect_filled(r.shrink2(vec2(0.0, 4.0)), 7, HOVER().gamma_multiply(t * 0.7));
+                ui.painter().rect_filled(r.shrink2(vec2(0.0, 4.0)), rr(7), HOVER().gamma_multiply(t * 0.7));
             }
             let col = if active { TEXT() } else { TEXT_DIM().lerp_to_gamma(TEXT(), t * 0.7) };
             ui.painter().galley(r.center() - g.size() / 2.0 - vec2(0.0, 1.0), g, col);
@@ -445,7 +610,7 @@ pub fn tabs(ui: &mut Ui, id: Id, labels: &[String], sel: &mut usize) -> bool {
         let y = target.bottom();
         let full = Rect::from_min_max(pos2(rects[0].left(), y), pos2(rects.last().unwrap().right(), y + 1.0));
         let _ = full;
-        ui.painter().rect_filled(Rect::from_min_max(pos2(x0, y - 2.5), pos2(x1, y)), 2, accent());
+        ui.painter().rect_filled(Rect::from_min_max(pos2(x0, y - 2.5), pos2(x1, y)), rr(2), accent());
     }
     changed
 }
@@ -459,8 +624,8 @@ pub fn segmented(ui: &mut Ui, id: Id, labels: &[&str], sel: &mut usize) -> bool 
         .collect();
     let total: f32 = widths.iter().sum::<f32>() + 6.0;
     let (r, _) = ui.allocate_exact_size(vec2(total, 32.0), Sense::hover());
-    ui.painter().rect_filled(r, 9, INPUT());
-    ui.painter().rect_stroke(r, 9, Stroke::new(1.0, BORDER()), StrokeKind::Inside);
+    ui.painter().rect_filled(r, rr(9), INPUT());
+    ui.painter().rect_stroke(r, rr(9), Stroke::new(1.0, BORDER()), StrokeKind::Inside);
     let mut x = r.left() + 3.0;
     let mut changed = false;
     let mut seg_rects = vec![];
@@ -472,7 +637,7 @@ pub fn segmented(ui: &mut Ui, id: Id, labels: &[&str], sel: &mut usize) -> bool 
     let target = seg_rects[*sel];
     let px = ease_to(ui.ctx(), id.with("px"), target.left(), 0.2);
     let pw = ease_to(ui.ctx(), id.with("pw"), target.width(), 0.2);
-    ui.painter().rect_filled(Rect::from_min_size(pos2(px, target.top()), vec2(pw, target.height())), 7, HOVER());
+    ui.painter().rect_filled(Rect::from_min_size(pos2(px, target.top()), vec2(pw, target.height())), rr(7), HOVER());
     for (i, sr) in seg_rects.iter().enumerate() {
         let resp = ui.interact(*sr, id.with(i), Sense::click());
         let t = hover_anim(ui, resp.id, resp.hovered());
@@ -488,7 +653,7 @@ pub fn segmented(ui: &mut Ui, id: Id, labels: &[&str], sel: &mut usize) -> bool 
 
 pub fn search_field(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Response {
     let (r, _) = ui.allocate_exact_size(vec2(width, 34.0), Sense::hover());
-    ui.painter().rect_filled(r, 9, INPUT());
+    ui.painter().rect_filled(r, rr(9), INPUT());
     icon(ui.painter(), Icon::Search, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), Vec2::splat(16.0)), TEXT_FAINT());
     let te = Rect::from_min_max(pos2(r.left() + 34.0, r.top()), pos2(r.right() - 10.0, r.bottom()));
     let resp = ui.put(
@@ -503,28 +668,28 @@ pub fn search_field(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> R
             .desired_width(te.width()),
     );
     let f = ui.ctx().animate_bool_with_time(resp.id.with("focus"), resp.has_focus(), 0.12);
-    ui.painter().rect_stroke(r, 9, Stroke::new(1.0, BORDER().lerp_to_gamma(accent(), f)), StrokeKind::Inside);
+    ui.painter().rect_stroke(r, rr(9), Stroke::new(1.0, BORDER().lerp_to_gamma(accent(), f)), StrokeKind::Inside);
     resp
 }
 
 pub fn chip(ui: &mut Ui, text: &str, bg: Color32, fg: Color32) -> Response {
     let g = ui.painter().layout_no_wrap(text.to_owned(), medium(12.0), fg);
     let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 16.0, 22.0), Sense::hover());
-    ui.painter().rect_filled(r, 6, bg);
+    ui.painter().rect_filled(r, rr(6), bg);
     ui.painter().galley(r.center() - g.size() / 2.0, g, fg);
     resp
 }
 
 pub fn progress_bar(p: &Painter, r: Rect, t: f32) {
-    p.rect_filled(r, CornerRadius::same((r.height() / 2.0) as u8), HOVER());
+    p.rect_filled(r, CornerRadius::same((r.height() / 2.0 * round_k().min(1.0)) as u8), HOVER());
     let w = (r.width() * t.clamp(0.0, 1.0)).max(r.height());
-    p.rect_filled(Rect::from_min_size(r.min, vec2(w, r.height())), CornerRadius::same((r.height() / 2.0) as u8), accent());
+    p.rect_filled(Rect::from_min_size(r.min, vec2(w, r.height())), CornerRadius::same((r.height() / 2.0 * round_k().min(1.0)) as u8), accent());
 }
 
 pub fn card_frame() -> Frame {
     Frame::new()
         .fill(PANEL())
-        .corner_radius(12)
+        .corner_radius(rr(12))
         .stroke(Stroke::new(1.0, BORDER()))
         .inner_margin(Margin::same(18))
 }
@@ -575,6 +740,7 @@ pub fn hsv(h: f32, s: f32, v: f32) -> Color32 {
 
 /// Иконка сборки: симметричный пиксельный узор 8×8.
 pub fn pixel_icon(p: &Painter, r: Rect, seed: u64, hue: f32, rounding: f32) {
+    let rounding = rounding.min(r.width() / 2.0);
     p.rect_filled(r, rounding, hsv(hue, 0.42, 0.20));
     let inner = r.shrink(r.width() * 0.16);
     let cell = inner.width() / 8.0;
@@ -592,7 +758,7 @@ pub fn pixel_icon(p: &Painter, r: Rect, seed: u64, hue: f32, rounding: f32) {
                 };
                 for xx in [x, 7 - x] {
                     let cr = Rect::from_min_size(inner.min + vec2(xx as f32 * cell, y as f32 * cell), Vec2::splat(cell));
-                    p.rect_filled(cr.expand(0.3), 0, c);
+                    p.rect_filled(cr.expand(0.3), rr(0), c);
                 }
             }
         }
@@ -632,7 +798,7 @@ pub fn head(p: &Painter, r: Rect, look: &SkinLook, seed: u64) {
                 hex(look.skin)
             };
             let cr = Rect::from_min_size(r.min + vec2(x as f32 * c, y as f32 * c), Vec2::splat(c));
-            p.rect_filled(cr.expand(0.25), 0, noisy(base, &mut rng, 0.07));
+            p.rect_filled(cr.expand(0.25), rr(0), noisy(base, &mut rng, 0.07));
         }
     }
 }
@@ -644,7 +810,7 @@ pub fn skin_figure(p: &Painter, r: Rect, look: &SkinLook, seed: u64, slim: bool)
     let mut rng = Rng::new(seed ^ 0xABCD);
     let px = |x: i32, y: i32, col: Color32, rng: &mut Rng| {
         let cr = Rect::from_min_size(o + vec2(x as f32 * c, y as f32 * c), Vec2::splat(c));
-        p.rect_filled(cr.expand(0.25), 0, noisy(col, rng, 0.08));
+        p.rect_filled(cr.expand(0.25), rr(0), noisy(col, rng, 0.08));
     };
     // голова
     let hr = Rect::from_min_size(o + vec2(4.0 * c, 0.0), Vec2::splat(8.0 * c));
@@ -704,20 +870,21 @@ pub fn landscape(p: &Painter, r: Rect, seed: u64, rounding: f32) {
     let mut h = 0.35 + rng.f() * 0.2;
     // солнце/луна
     let sun = pos2(r.left() + r.width() * (0.2 + rng.f() * 0.6), r.top() + r.height() * 0.22);
-    painter.rect_filled(Rect::from_center_size(sun, Vec2::splat(cw * 2.6)), 0, if night { hsv(0.15, 0.08, 0.95) } else { hsv(0.13, 0.35, 1.0) });
+    painter.rect_filled(Rect::from_center_size(sun, Vec2::splat(cw * 2.6)), rr(0), if night { hsv(0.15, 0.08, 0.95) } else { hsv(0.13, 0.35, 1.0) });
     for i in 0..cols {
         h = (h + (rng.f() - 0.5) * 0.12).clamp(0.2, 0.62);
         let top = r.bottom() - r.height() * h;
         let x = r.left() + i as f32 * cw;
         let col = Rect::from_min_max(pos2(x, top), pos2(x + cw + 0.5, r.bottom()));
         let k = if night { 0.45 } else { 1.0 };
-        painter.rect_filled(col, 0, hsv(0.08, 0.45, 0.42 * k));
-        painter.rect_filled(Rect::from_min_size(col.min, vec2(col.width(), cw)), 0, hsv(0.28, 0.55, 0.62 * k));
+        painter.rect_filled(col, rr(0), hsv(0.08, 0.45, 0.42 * k));
+        painter.rect_filled(Rect::from_min_size(col.min, vec2(col.width(), cw)), rr(0), hsv(0.28, 0.55, 0.62 * k));
         if rng.f() < 0.12 {
             // дерево
             let trunk = Rect::from_min_size(pos2(x + cw * 0.25, top - cw * 3.0), vec2(cw * 0.5, cw * 3.0));
-            painter.rect_filled(trunk, 0, hsv(0.07, 0.5, 0.35 * k));
-            painter.rect_filled(Rect::from_center_size(pos2(x + cw / 2.0, top - cw * 3.5), vec2(cw * 3.0, cw * 2.2)), 0, hsv(0.3, 0.6, 0.42 * k));
+            painter.rect_filled(trunk, rr(0), hsv(0.07, 0.5, 0.35 * k));
+            painter.rect_filled(Rect::from_center_size(pos2(x + cw / 2.0, top - cw * 3.5), vec2(cw * 3.0, cw * 2.2)), rr(0), hsv(0.3, 0.6, 0.42 * k));
         }
     }
 }
+

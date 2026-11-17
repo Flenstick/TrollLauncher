@@ -63,8 +63,7 @@ impl App {
 							ui.ctx()
 								.set_cursor_icon(egui::CursorIcon::Grabbing);
 							ui.painter().rect_stroke(
-								icon_rect.expand(2.0),
-								10,
+								icon_rect.expand(2.0), rr(10),
 								Stroke::new(1.5, accent()),
 								StrokeKind::Inside,
 							);

@@ -59,29 +59,62 @@ fn err(e: impl std::fmt::Display) -> crate::Error {
     crate::ErrorKind::OtherError(format!("sfatm: {e}")).into()
 }
 
-/// Проверить и обновить sfatm в `instance_dir/mods`. `Ok(None)` — обновлять нечего.
-pub async fn update(instance_dir: &Path) -> crate::Result<Option<Updated>> {
-    let mods = instance_dir.join("mods");
-    let Some((old_path, old_ver)) = installed(&mods) else { return Ok(None) };
-    let url = std::env::var("SFATM_UPDATE_URL").unwrap_or_else(|_| MANIFEST_URL.to_string());
-    let http = reqwest::Client::builder()
+fn client() -> crate::Result<reqwest::Client> {
+    reqwest::Client::builder()
         .user_agent(concat!("TrollLauncher/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(6))
         .build()
-        .map_err(err)?;
-    let resp = http.get(&url).timeout(Duration::from_secs(10)).send().await.map_err(err)?;
-    if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None); // релизов ещё нет
+        .map_err(err)
+}
+
+/// Последний latest.json и когда его взяли: один запрос на все сборки раз в 10 минут.
+static CACHE: std::sync::Mutex<Option<(std::time::Instant, Option<Manifest>)>> = std::sync::Mutex::new(None);
+
+/// latest.json с GitHub (`Ok(None)` — релизов ещё нет). `fresh` — мимо кэша.
+pub async fn manifest(fresh: bool) -> crate::Result<Option<Manifest>> {
+    if !fresh
+        && let Some((t, m)) = CACHE.lock().unwrap().as_ref()
+        && t.elapsed() < Duration::from_secs(600)
+    {
+        return Ok(m.clone());
     }
-    let m: Manifest = resp.error_for_status().map_err(err)?.json().await.map_err(err)?;
+    let url = std::env::var("SFATM_UPDATE_URL").unwrap_or_else(|_| MANIFEST_URL.to_string());
+    let resp = client()?.get(&url).timeout(Duration::from_secs(10)).send().await.map_err(err)?;
+    let m = if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        None
+    } else {
+        let m: Manifest = resp.error_for_status().map_err(err)?.json().await.map_err(err)?;
+        if version_of(&m.file).is_none() || m.file.contains('/') || m.file.contains('\\') {
+            return Err(err(format!("странное имя файла в latest.json: {}", m.file)));
+        }
+        Some(m)
+    };
+    *CACHE.lock().unwrap() = Some((std::time::Instant::now(), m.clone()));
+    Ok(m)
+}
+
+/// Версия sfatm в сборке (`instance_dir/mods`), если мод там есть.
+pub fn installed_version(instance_dir: &Path) -> Option<String> {
+    installed(&instance_dir.join("mods")).map(|(_, v)| v)
+}
+
+/// Скачать и поставить версию из манифеста. `progress(скачано, всего)` зовётся по ходу загрузки.
+/// Файл сначала пишется рядом как `.part`, проверяется sha512 и только потом подменяет старый jar.
+pub async fn install(instance_dir: &Path, m: &Manifest, progress: impl Fn(u64, u64)) -> crate::Result<Option<Updated>> {
+    let mods = instance_dir.join("mods");
+    let Some((old_path, old_ver)) = installed(&mods) else { return Ok(None) };
     if !newer(&m.version, &old_ver) {
         return Ok(None);
     }
-    if version_of(&m.file).is_none() || m.file.contains('/') || m.file.contains('\\') {
-        return Err(err(format!("странное имя файла в latest.json: {}", m.file)));
+    tracing::info!("sfatm: обновление {old_ver} → {} в {}", m.version, instance_dir.display());
+    let mut resp = client()?.get(&m.url).timeout(Duration::from_secs(600)).send().await.map_err(err)?.error_for_status().map_err(err)?;
+    let total = resp.content_length().unwrap_or(m.size);
+    let mut bytes = Vec::with_capacity(total as usize);
+    progress(0, total);
+    while let Some(chunk) = resp.chunk().await.map_err(err)? {
+        bytes.extend_from_slice(&chunk);
+        progress(bytes.len() as u64, total);
     }
-    tracing::info!("sfatm: обновление {old_ver} → {}", m.version);
-    let bytes = http.get(&m.url).timeout(Duration::from_secs(600)).send().await.map_err(err)?.error_for_status().map_err(err)?.bytes().await.map_err(err)?;
     if m.size > 0 && bytes.len() as u64 != m.size {
         return Err(err(format!("размер не совпал: {} вместо {}", bytes.len(), m.size)));
     }
@@ -97,8 +130,22 @@ pub async fn update(instance_dir: &Path) -> crate::Result<Option<Updated>> {
     if tokio::fs::rename(&old_path, removed.join(&old_name)).await.is_err() {
         let _ = tokio::fs::remove_file(&old_path).await;
     }
-    tokio::fs::rename(&part, mods.join(&m.file)).await.map_err(err)?;
-    Ok(Some(Updated { from: old_ver, to: m.version }))
+    if let Err(e) = tokio::fs::rename(&part, mods.join(&m.file)).await {
+        // не оставлять сборку без мода: вернуть старый jar на место
+        let _ = tokio::fs::rename(removed.join(&old_name), &old_path).await;
+        let _ = tokio::fs::remove_file(&part).await;
+        return Err(err(e));
+    }
+    Ok(Some(Updated { from: old_ver, to: m.version.clone() }))
+}
+
+/// Проверить и обновить sfatm в `instance_dir/mods`. `Ok(None)` — обновлять нечего.
+pub async fn update(instance_dir: &Path) -> crate::Result<Option<Updated>> {
+    let Some(old_ver) = installed_version(instance_dir) else { return Ok(None) };
+    match manifest(false).await? {
+        Some(m) if newer(&m.version, &old_ver) => install(instance_dir, &m, |_, _| {}).await,
+        _ => Ok(None),
+    }
 }
 
 #[cfg(test)]

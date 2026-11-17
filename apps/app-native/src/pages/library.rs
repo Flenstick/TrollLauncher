@@ -110,7 +110,7 @@ fn instance_card(ui: &mut Ui, inst: &Inst, w: f32, state: u8) -> (Response, bool
     let t = hover_anim(ui, resp.id, resp.hovered());
     let rect_d = rect.translate(vec2(0.0, -t * 2.0));
     let p = ui.painter().clone();
-    p.rect(rect_d, 12, PANEL().lerp_to_gamma(RAISED(), t), Stroke::new(1.0, BORDER().lerp_to_gamma(HOVER(), t)), StrokeKind::Inside);
+    p.rect(rect_d, rr(12), PANEL().lerp_to_gamma(RAISED(), t), Stroke::new(1.0, BORDER().lerp_to_gamma(HOVER(), t)), StrokeKind::Inside);
     let ir = Rect::from_min_size(rect_d.min + vec2(14.0, 14.0), Vec2::splat(58.0));
     App::inst_icon(ui, ir, inst, 11.0);
     let x = ir.right() + 12.0;
