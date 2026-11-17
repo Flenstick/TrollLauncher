@@ -15,7 +15,7 @@ provides=('trolllauncher')
 conflicts=('trolllauncher')
 options=('!strip' '!debug')
 source=("$url/releases/download/v$pkgver/trolllauncher-$pkgver-x86_64.tar.gz")
-sha256sums=('d91b435a50b9d451cf64f55752324d248f3a930e242230219eaf1b6b3bbc553a')
+sha256sums=('7c9a1cceb4d0da3fd7d9e45489296f9f163126012fd7c44b4f204d2f71c4e0f5')
 
 package() {
 	cd "trolllauncher-$pkgver-x86_64"
