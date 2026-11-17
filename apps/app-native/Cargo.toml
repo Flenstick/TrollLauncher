@@ -1,6 +1,6 @@
 [package]
 name = "trolllauncher-native"
-version = "2.1.0"
+version = "2.1.1"
 edition.workspace = true
 description = "TrollLauncher — нативный интерфейс на Rust (egui) поверх движка theseus"
 

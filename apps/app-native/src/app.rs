@@ -176,6 +176,7 @@ pub struct App {
     last_refresh: f64,
     jobs_before: usize,
     last_sfatm: f64,
+    last_sfsync: f64,
 }
 
 impl App {
@@ -267,6 +268,7 @@ impl App {
             last_refresh: 0.0,
             jobs_before: 0,
             last_sfatm: -1e9,
+            last_sfsync: -1e9,
             perf: None,
             mod_info: None,
             mod_details: HashMap::new(),
@@ -475,6 +477,8 @@ impl App {
                     if stopped {
                         // отложенное обновление sfatm — сразу после выхода из игры
                         self.be.sfatm_sync(stopped_ids, Default::default(), false);
+                        // отложенный скин и финальный гардероб — не ждём следующего тика
+                        self.be.sfatm_watch();
                     }
                     let (was, now_playing) = (!self.running.is_empty(), !r.is_empty());
                     self.running = r;
@@ -769,6 +773,11 @@ impl App {
                 self.last_sfatm = now;
                 let ids = self.instances.iter().map(|i| i.id.clone()).collect();
                 self.be.sfatm_sync(ids, self.running.keys().cloned().collect(), false);
+            }
+            // синхронизация скинов с гардеробом sfatm (запрос запущенной игре + изменения из игры)
+            if now - self.last_sfsync > 3.0 {
+                self.last_sfsync = now;
+                self.be.sfatm_watch();
             }
             if crate::sfupdate::downloading() {
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(150));

@@ -19,6 +19,7 @@ mod sfupdate;
 mod prefs;
 mod selftest;
 mod sfskin;
+mod sfsync;
 mod skin3d;
 mod skinedit;
 mod sidebar_instances;

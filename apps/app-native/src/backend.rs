@@ -880,12 +880,12 @@ impl Backend {
             .await;
             match res {
                 Ok(()) => {
+					let _ = tx.send(Msg::ReloadSkins);
                     let _ = tx.send(Msg::Toast("Скин добавлен".into(), false));
                 }
                 Err(e) => Self::toast_err(&tx, "Не удалось добавить", e),
             }
         });
-        self.load_skins();
     }
 
     pub fn add_skin_nick(&self, nick: String, elyby: bool) {
@@ -899,12 +899,12 @@ impl Backend {
             .await;
             match res {
                 Ok(()) => {
+					let _ = tx.send(Msg::ReloadSkins);
                     let _ = tx.send(Msg::Toast(format!("Скин {nick} добавлен"), false));
                 }
                 Err(e) => Self::toast_err(&tx, "Не удалось найти скин", e),
             }
         });
-        self.load_skins();
     }
 
     /// Скин по нику — в редактор как донор одежды (в библиотеку не добавляется).
@@ -971,20 +971,21 @@ impl Backend {
                 theseus::skin_library::update(s).await.map_err(err)
             }
             .await;
-            if let Err(e) = res {
-                Self::toast_err(&tx, "Скин", e);
-            }
+			match res {
+				Ok(()) => { let _ = tx.send(Msg::ReloadSkins); }
+				Err(e) => Self::toast_err(&tx, "Скин", e),
+			}
         });
-        self.load_skins();
     }
 
     pub fn remove_skin(&self, id: String) {
         self.task(|tx| async move {
             if let Err(e) = theseus::skin_library::remove(&id).await {
                 Self::toast_err(&tx, "Не удалось удалить скин", e);
-            }
+			} else {
+				let _ = tx.send(Msg::ReloadSkins);
+			}
         });
-        self.load_skins();
     }
 
     /// Надеть скин: в лаунчере, на Mojang (Microsoft) и в гардероб sfatm во всех сборках с модом.
@@ -1006,11 +1007,11 @@ impl Backend {
             let n = Self::sfatm_put(&skin.png, &skin.name, skin.slim).await;
             let tail = if n > 0 { format!(" и в гардероб sfatm ({n})") } else { String::new() };
             let _ = tx.send(Msg::Toast(format!("Скин «{}» надет{tail}", skin.name), false));
+			let _ = tx.send(Msg::ReloadSkins);
         });
-        self.load_skins();
     }
 
-    async fn instance_dirs() -> Vec<PathBuf> {
+    pub(crate) async fn instance_dirs() -> Vec<PathBuf> {
         let mut out = vec![];
         if let Ok(list) = instance::list().await {
             for m in list {
@@ -1023,7 +1024,7 @@ impl Backend {
     }
 
     /// Папки игр, где сейчас идёт игра (их гардероб sfatm не трогаем).
-    async fn busy_dirs() -> Vec<PathBuf> {
+    pub(crate) async fn busy_dirs() -> Vec<PathBuf> {
         let mut out = vec![];
         if let Ok(ps) = process::get_all().await {
             for p in ps {
@@ -1046,6 +1047,8 @@ impl Backend {
     }
 
     /// Записать скин в гардеробы sfatm; возвращает, во сколько сборок.
+    /// Запущенным играм уходит запрос `launcher.json` (sfatm ≥ 1.32.124 применит на лету);
+    /// если мод старый и запрос не принят — sfsync запишет гардероб после выхода из игры.
     async fn sfatm_put(png: &[u8], name: &str, slim: bool) -> usize {
         let dirs = crate::sfskin::game_dirs(&Self::instance_dirs().await);
         let busy = Self::busy_dirs().await;
@@ -1054,7 +1057,18 @@ impl Backend {
         let png = png.to_vec();
         let name = name.to_string();
         tokio::task::spawn_blocking(move || {
-            dirs.iter().filter(|d| !busy.contains(&canon(d))).filter(|d| crate::sfskin::put(d, &png, &name, slim).is_ok()).count()
+            let mut n = 0;
+            for d in &dirs {
+                if busy.contains(&canon(d)) {
+                    if crate::sfskin::request(d, &png, &name, slim).is_ok() {
+                        crate::sfsync::queue(d, &png, &name, slim);
+                        n += 1;
+                    }
+                } else if crate::sfskin::put(d, &png, &name, slim).is_ok() {
+                    n += 1;
+                }
+            }
+            n
         })
         .await
         .unwrap_or(0)
@@ -1075,8 +1089,8 @@ impl Backend {
                 if after > before { format!("Из гардероба sfatm добавлено скинов: {}", after - before) } else { "Новых скинов в гардеробе sfatm нет".into() },
                 false,
             ));
+			let _ = tx.send(Msg::ReloadSkins);
         });
-        self.load_skins();
     }
 
     /// У аккаунтов без выбранного скина — подтянуть их текущий скин с Ely.by / Mojang.
