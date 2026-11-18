@@ -28,7 +28,11 @@ pub async fn sfatm_update(
     match crate::state::sfatm_update::update(&dir).await {
         Ok(Some(u)) => {
             info!("sfatm обновлён: {} → {}", u.from, u.to);
-            crate::state::instances::commands::sync_content_files(instance_id, &state).await?;
+            crate::state::instances::commands::sync_content_files(
+                instance_id,
+                &state,
+            )
+            .await?;
             Ok(Some(u))
         }
         Ok(None) => Ok(None),
@@ -43,6 +47,19 @@ pub async fn sfatm_update(
 pub async fn run(
     instance_id: &str,
     quick_play_type: QuickPlayType,
+) -> crate::Result<ProcessMetadata> {
+    run_with_sfatm_update(instance_id, quick_play_type, async {
+        let _ = sfatm_update(instance_id).await;
+    })
+    .await
+}
+
+/// Launch with a caller-provided sfatm update that can report progress.
+#[tracing::instrument(skip(update_sfatm))]
+pub async fn run_with_sfatm_update(
+    instance_id: &str,
+    quick_play_type: QuickPlayType,
+    update_sfatm: impl Future<Output = ()>,
 ) -> crate::Result<ProcessMetadata> {
     let state = State::get().await?;
     if crate::state::instances::adapters::sqlite::instance_rows::is_instance_quarantined(
@@ -66,8 +83,11 @@ pub async fn run(
         )
         .await?;
     }
-    if crate::state::PerformanceSettings::get().await.sfatm_autoupdate {
-        let _ = sfatm_update(instance_id).await;
+    if crate::state::PerformanceSettings::get()
+        .await
+        .sfatm_autoupdate
+    {
+        update_sfatm.await;
     }
     super::shared::check_shared_instance_availability_before_launch(
         instance_id,

@@ -548,6 +548,11 @@ async fn export_content(
                         )
                         .await?
                 {
+                    if !is_symlink {
+                        return Ok(Some(ReadableContent::Stored(
+                            state.content_store.store_file(path).await?,
+                        )));
+                    }
                     return Err(input(format!(
                         "{} was changed outside the app; resolve it before exporting",
                         file.relative_path
@@ -842,6 +847,11 @@ mod import_export_regression {
             .map(|item| item.file_path)
             .collect();
         assert_eq!(paths.len(), 2);
+        let changed_mod = b"externally replaced jar bytes";
+        let replacement = scratch.path().join("replacement.jar");
+        std::fs::write(&replacement, changed_mod).unwrap();
+        let mods = get_full_path(&id).await.unwrap().join("mods");
+        std::fs::rename(&replacement, mods.join("bundled.jar")).unwrap();
         let export = isolated.join("fixture.mrpack");
         export_mrpack(
             &id,
@@ -867,7 +877,12 @@ mod import_export_regression {
             actual_icon,
             std::fs::read(metadata.instance.icon_path.unwrap()).unwrap()
         );
-        assert!(zip.by_name("overrides/mods/bundled.jar").is_ok());
+        let mut bundled_bytes = Vec::new();
+        zip.by_name("overrides/mods/bundled.jar")
+            .unwrap()
+            .read_to_end(&mut bundled_bytes)
+            .unwrap();
+        assert_eq!(bundled_bytes, changed_mod);
         assert!(zip.by_name("overrides/mods/custom.jar.disabled").is_ok());
         let broken = isolated.join("broken.mrpack");
         std::fs::write(&broken, b"not an archive").unwrap();

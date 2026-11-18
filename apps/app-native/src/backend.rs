@@ -310,13 +310,12 @@ impl Backend {
 
     pub fn run(&self, id: String) {
         self.task(|tx| async move {
-            // наш мод sfatm обновляется до запуска (прогресс — в «Загрузках»); движок проверит ещё раз, но уже без загрузки
-            if PerformanceSettings::get().await.sfatm_autoupdate
-                && let Some((text, error)) = crate::sfupdate::before_launch(&id).await
-            {
-                let _ = tx.send(Msg::Toast(text, error));
-            }
-            if let Err(e) = instance::run(&id, instance::QuickPlayType::None).await {
+            let update = async {
+                if let Some((text, error)) = crate::sfupdate::before_launch(&id).await {
+                    let _ = tx.send(Msg::Toast(text, error));
+                }
+            };
+            if let Err(e) = instance::run_with_sfatm_update(&id, instance::QuickPlayType::None, update).await {
                 Self::toast_err(&tx, "Не удалось запустить", e);
             }
         });

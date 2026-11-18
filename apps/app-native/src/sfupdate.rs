@@ -135,16 +135,27 @@ async fn update_one(id: &str, m: &Manifest) -> Result<Option<sfu::Updated>, Stri
 }
 
 /// Ждать, пока фоновое обновление этой сборки закончится (не дольше 10 минут).
-async fn wait_running(id: &str) {
+async fn wait_running(id: &str) -> Option<SfState> {
+    if !matches!(state_of(id), Some(SfState::Downloading { .. })) {
+        return None;
+    }
     let t = Instant::now();
     while matches!(state_of(id), Some(SfState::Downloading { .. })) && t.elapsed() < Duration::from_secs(600) {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
+    state_of(id)
 }
 
 /// Перед запуском: обновить sfatm в этой сборке (с прогрессом). Возвращает текст для уведомления.
 pub async fn before_launch(id: &str) -> Option<(String, bool)> {
-    wait_running(id).await;
+    if let Some(state) = wait_running(id).await {
+        return match state {
+            SfState::Failed(e) => Some((format!("Не удалось обновить sfatm, запускаю старую версию: {e}"), true)),
+            _ => None,
+        };
+    }
+    let dir = instance::get_full_path(id).await.ok()?;
+    sfu::installed_version(&dir)?;
     let m = manifest(false).await?;
     match update_one(id, &m).await {
         Ok(Some(u)) => Some((format!("sfatm обновлён: {} → {}", u.from, u.to), false)),
