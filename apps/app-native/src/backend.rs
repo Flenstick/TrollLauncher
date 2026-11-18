@@ -1050,6 +1050,7 @@ impl Backend {
     /// Запущенным играм уходит запрос `launcher.json` (sfatm ≥ 1.32.124 применит на лету);
     /// если мод старый и запрос не принят — sfsync запишет гардероб после выхода из игры.
     async fn sfatm_put(png: &[u8], name: &str, slim: bool) -> usize {
+		let _sync = crate::sfsync::SYNC.lock().await;
         let dirs = crate::sfskin::game_dirs(&Self::instance_dirs().await);
         let busy = Self::busy_dirs().await;
         let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
@@ -1061,12 +1062,12 @@ impl Backend {
             for d in &dirs {
                 if busy.contains(&canon(d)) {
                     if crate::sfskin::request(d, &png, &name, slim).is_ok() {
-                        crate::sfsync::queue(d, &png, &name, slim);
                         n += 1;
                     }
-                } else if crate::sfskin::put(d, &png, &name, slim).is_ok() {
-                    n += 1;
-                }
+				} else if crate::sfskin::put(d, &png, &name, slim).is_ok() {
+					crate::sfskin::clear_request(d);
+					n += 1;
+				}
             }
             n
         })

@@ -13,21 +13,9 @@ use std::sync::Mutex;
 use std::time::SystemTime;
 use theseus::prelude::*;
 
-/// Скины для запущенных игр: применить после выхода, если мод не принял запрос.
-static PENDING: Mutex<Vec<(PathBuf, Vec<u8>, String, bool)>> = Mutex::new(Vec::new());
 /// mtime wardrobe.json, при котором синхронизация уже прошла.
 static SEEN: std::sync::LazyLock<Mutex<HashMap<PathBuf, SystemTime>>> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
-
-/// Запомнить скин для запущенной игры (последний вытесняет прежний).
-pub fn queue(dir: &Path, png: &[u8], name: &str, slim: bool) {
-    let mut p = PENDING.lock().unwrap();
-    p.retain(|(d, ..)| d != dir);
-    p.push((dir.to_path_buf(), png.to_vec(), name.to_string(), slim));
-}
-
-fn take_pending() -> Vec<(PathBuf, Vec<u8>, String, bool)> {
-    std::mem::take(&mut *PENDING.lock().unwrap())
-}
+pub(crate) static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn canon(p: &Path) -> PathBuf {
     std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
@@ -56,26 +44,16 @@ impl Backend {
     /// Синхронизация с гардеробами sfatm. Вызывается из tick раз в несколько секунд:
     /// проверка mtime дешёвая, чтение гардероба — только при изменениях.
     pub fn sfatm_watch(&self) {
-		static WATCH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         self.task(|tx| async move {
-			let Ok(_watch) = WATCH.try_lock() else { return };
+			let Ok(_watch) = SYNC.try_lock() else { return };
             let dirs = crate::sfskin::game_dirs(&Self::instance_dirs().await);
             let busy: Vec<PathBuf> = Self::busy_dirs().await.iter().map(|p| canon(p)).collect();
 
-            // отложенные скины: игра вышла, а запрос модом не принят — пишем гардероб сами
-            for (d, png, name, slim) in take_pending() {
-                if busy.contains(&canon(&d)) {
-                    queue(&d, &png, &name, slim);
-                    continue;
-                }
-                if crate::sfskin::request_pending(&d) {
-					if crate::sfskin::put(&d, &png, &name, slim).is_ok() {
-						crate::sfskin::clear_request(&d);
-					} else {
-						queue(&d, &png, &name, slim);
-					}
+			for d in &dirs {
+				if !busy.contains(&canon(d)) {
+					let _ = crate::sfskin::apply_pending(d);
 				}
-            }
+			}
 
             // игра → лаунчер: только папки, где wardrobe.json изменился
             let Ok(lib) = theseus::skin_library::get().await else { return };

@@ -23,19 +23,36 @@ fn has_sfatm(game_dir: &Path) -> bool {
         .any(|e| e.file_name().to_string_lossy().starts_with("sfatm-") && e.file_name().to_string_lossy().ends_with(".jar"))
 }
 
-/// Папки игры со sfatm: сборки лаунчера и Prism Launcher.
+/// Папки игры со sfatm в TrollLauncher, Prism и Minecraft Launcher.
 pub fn game_dirs(launcher_instances: &[PathBuf]) -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = launcher_instances.iter().filter(|d| has_sfatm(d)).cloned().collect();
-    let prism = crate::sys::data_root().join("PrismLauncher").join("instances");
-    for e in std::fs::read_dir(prism).into_iter().flatten().flatten() {
-        for sub in ["minecraft", ".minecraft"] {
-            let d = e.path().join(sub);
-            if has_sfatm(&d) {
-                out.push(d);
-            }
-        }
-    }
-    out
+	let mut candidates = launcher_instances.to_vec();
+	let data = crate::sys::data_root();
+	let prism = data.join("PrismLauncher").join("instances");
+	for e in std::fs::read_dir(prism).into_iter().flatten().flatten() {
+		candidates.extend(["minecraft", ".minecraft"].map(|sub| e.path().join(sub)));
+	}
+	#[cfg(target_os = "windows")]
+	let vanilla = data.join(".minecraft");
+	#[cfg(target_os = "macos")]
+	let vanilla = data.join("minecraft");
+	#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+	let vanilla = dirs::home_dir().unwrap_or_default().join(".minecraft");
+	for name in ["launcher_profiles.json", "launcher_profiles_microsoft_store.json"] {
+		if let Some(data) = std::fs::read(vanilla.join(name)).ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+			&& let Some(profiles) = data.get("profiles").and_then(Value::as_object)
+		{
+			candidates.extend(profiles.values()
+				.filter_map(|profile| profile.get("gameDir").and_then(Value::as_str))
+				.filter(|dir| !dir.is_empty())
+				.map(|dir| vanilla.join(dir)));
+		}
+	}
+	candidates.push(vanilla);
+	let mut visited = std::collections::HashSet::new();
+	candidates.into_iter().filter_map(|dir| {
+		let dir = dir.canonicalize().ok()?;
+		(has_sfatm(&dir) && visited.insert(dir.clone())).then_some(dir)
+	}).collect()
 }
 
 fn read(dir: &Path) -> Value {
@@ -52,10 +69,20 @@ fn write(dir: &Path, v: &Value) -> std::io::Result<()> {
 
 /// Положить скин в гардероб и надеть в текущем образе.
 pub fn put(dir: &Path, png: &[u8], name: &str, slim: bool) -> std::io::Result<()> {
-    let mut v = read(dir);
-    if !v.is_object() {
-        v = json!({});
-    }
+	let wardrobe = dir.join("sfatm_wardrobe");
+	let parsed: Value = match std::fs::read(wardrobe.join("wardrobe.json")) {
+		Ok(data) => serde_json::from_slice(&data)?,
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => match std::fs::read(wardrobe.join("wardrobe.json.bak")) {
+			Ok(data) => serde_json::from_slice(&data)?,
+			Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
+			Err(e) => return Err(e),
+		},
+		Err(e) => return Err(e),
+	};
+	let mut v = parsed;
+	if !v.is_object() {
+		return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Некорректный гардероб sfatm"));
+	}
     let file = java_name(png);
     let skins_dir = dir.join("sfatm_wardrobe/skins");
     std::fs::create_dir_all(&skins_dir)?;
@@ -108,13 +135,41 @@ pub fn request(dir: &Path, png: &[u8], name: &str, slim: bool) -> std::io::Resul
     std::fs::rename(tmp, w.join("launcher.json"))
 }
 
-/// Запрос ещё не принят модом (старая версия мода или игра не успела его прочитать).
-pub fn request_pending(dir: &Path) -> bool {
-    dir.join("sfatm_wardrobe/launcher.json").exists()
+const REQUESTS: [&str; 2] = ["launcher.json", "launcher-applying.json"];
+
+#[cfg(test)]
+fn request_pending(dir: &Path) -> bool {
+	REQUESTS.iter().any(|name| dir.join("sfatm_wardrobe").join(name).exists())
 }
 
 pub fn clear_request(dir: &Path) {
-    let _ = std::fs::remove_file(dir.join("sfatm_wardrobe/launcher.json"));
+	for name in REQUESTS {
+		let _ = std::fs::remove_file(dir.join("sfatm_wardrobe").join(name));
+	}
+}
+
+/// После выхода применяет сохранённый запрос, даже если лаунчер перезапускался.
+pub fn apply_pending(dir: &Path) -> std::io::Result<()> {
+	let wardrobe = dir.join("sfatm_wardrobe");
+	for name in REQUESTS {
+		let bytes = match std::fs::read(wardrobe.join(name)) {
+			Ok(bytes) => bytes,
+			Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+			Err(e) => return Err(e),
+		};
+		let data: Value = serde_json::from_slice(&bytes)?;
+		let file = data.get("file").and_then(Value::as_str).unwrap_or("");
+		if file.contains(['/', '\\']) || !file.ends_with(".png") {
+			return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Недопустимое имя скина"));
+		}
+		let png = std::fs::read(wardrobe.join("skins").join(file))?;
+		let name = data.get("name").and_then(Value::as_str).unwrap_or("Скин из лаунчера");
+		let slim = data.get("slim").and_then(Value::as_bool).unwrap_or(false);
+		put(dir, &png, name, slim)?;
+		clear_request(dir);
+		break;
+	}
+	Ok(())
 }
 
 /// Скин текущего образа: (png, имя, тонкие руки). None — надет скин аккаунта, встроенный или файл пропал.
@@ -183,8 +238,11 @@ mod tests {
         let req: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join("sfatm_wardrobe/launcher.json")).unwrap()).unwrap();
         assert_eq!(req["name"], "Живой");
         assert_eq!(req["slim"], false);
-        super::clear_request(dir.path());
-        assert!(!super::request_pending(dir.path()));
+		std::fs::rename(dir.path().join("sfatm_wardrobe/launcher.json"), dir.path().join("sfatm_wardrobe/launcher-applying.json")).unwrap();
+		assert!(super::request_pending(dir.path()));
+		super::apply_pending(dir.path()).unwrap();
+		assert!(!super::request_pending(dir.path()));
+		assert_eq!(super::worn(dir.path()).unwrap(), (png, "Живой".to_string(), false));
     }
 
     #[test]
