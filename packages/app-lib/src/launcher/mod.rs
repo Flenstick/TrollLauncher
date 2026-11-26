@@ -1294,6 +1294,11 @@ pub async fn launch_minecraft(
         .friends_socket
         .update_status(Some(instance.name.clone()))
         .await;
+	if let Some(file) = crate::state::instances::trollland_policy::scan_instance(&current, &state).await?.into_iter().next() {
+		return Err(crate::ErrorKind::LauncherError(format!(
+			"Запуск TrollLand остановлен: {} ({})", file.content.error(), file.relative,
+		)).into());
+	}
 
     // Create Minecraft child by inserting it into the state
     // This also spawns the process and prepares the subsequent processes

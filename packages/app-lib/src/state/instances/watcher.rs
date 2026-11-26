@@ -27,7 +27,7 @@ pub struct FileWatcher {
 static CONTENT_SYNCS: LazyLock<DashMap<String, bool>> =
     LazyLock::new(DashMap::new);
 
-fn queue_content_sync(instance_id: String) {
+pub(crate) fn queue_content_sync(instance_id: String) {
     match CONTENT_SYNCS.entry(instance_id.clone()) {
         Entry::Occupied(mut entry) => {
             *entry.get_mut() = true;
@@ -351,6 +351,11 @@ pub(crate) async fn watch_instances_init(
     for instance in instances {
         watch_instance_folder(&instance.id, &instance.path, watcher, dirs)
             .await;
+		match super::trollland_policy::applies_to(&instance, pool).await {
+			Ok(true) => queue_content_sync(instance.id.clone()),
+			Ok(false) => {}
+			Err(error) => tracing::warn!(instance_id = %instance.id, "Could not identify TrollLand instance: {error}"),
+		}
         if let Err(error) =
             crate::api::instance::reconcile_screenshots(&instance.id).await
         {

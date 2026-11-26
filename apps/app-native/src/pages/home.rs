@@ -393,6 +393,7 @@ mod tests {
 			played_secs: 0,
 			installing: false,
 			created: chrono::DateTime::from_timestamp(created, 0).unwrap(),
+			groups: Vec::new(),
 		}
 	}
 	#[test]

@@ -929,6 +929,9 @@ impl Process {
 
         state.process_manager.remove(uuid);
         clear_persisted_process(&state, persisted_process).await;
+		if crate::state::instances::trollland_policy::applies_to_id(&instance_id, &state).await.is_ok_and(|enabled| enabled) {
+			crate::state::instances::watcher::queue_content_sync(instance_id.clone());
+		}
         let sync_instance_id = instance_id.clone();
         tokio::spawn(async move {
             if let Err(error) =

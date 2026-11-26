@@ -19,6 +19,9 @@ mod logger;
 mod state;
 /// Автообновление нашего мода sfatm (для лаунчеров и проверки из командной строки).
 pub use state::sfatm_update;
+pub use state::instances::trollland_policy::{
+	check_curseforge_download, curseforge_block_reason, is_trollland_name,
+};
 
 pub use api::*;
 pub use error::*;

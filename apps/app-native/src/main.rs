@@ -15,6 +15,8 @@ mod msa;
 mod navigation;
 mod pages;
 mod pixicons;
+mod prismui;
+mod horizon;
 mod sfupdate;
 mod prefs;
 mod selftest;

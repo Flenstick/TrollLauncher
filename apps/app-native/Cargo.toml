@@ -1,6 +1,6 @@
 [package]
 name = "trolllauncher-native"
-version = "2.1.3"
+version = "2.2.0"
 edition.workspace = true
 description = "TrollLauncher — нативный интерфейс на Rust (egui) поверх движка theseus"
 
@@ -30,6 +30,8 @@ wry = "0.56"
 tao = "0.36"
 pulldown-cmark = { workspace = true }
 zip = { workspace = true }
+flate2 = { workspace = true }
+tar = { workspace = true }
 sha2 = { workspace = true }
 zstd = "0.13"
 ttf-parser = "0.25"

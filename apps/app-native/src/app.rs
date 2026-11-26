@@ -40,6 +40,8 @@ pub struct CreateDialog {
     pub loader: usize,
     pub icon: Option<PathBuf>,
     pub snapshots: bool,
+    /// Показывать старые беты и альфы
+    pub beta: bool,
 }
 
 #[derive(Default)]
@@ -84,6 +86,25 @@ pub struct App {
     pub page_changed: f64,
 
     pub instances: Vec<Inst>,
+    /// Группы сборок (id, имя)
+    pub groups: Vec<(String, String)>,
+    /// Сборки Horizon (Minecraft на Rust), id `horizon:<id>`, и их папки
+    pub horizon: Vec<Inst>,
+    pub horizon_home: HashMap<String, String>,
+    /// Закреплённая версия сборки Horizon (None — последняя)
+    pub horizon_ver: HashMap<String, Option<String>>,
+    pub horizon_installed: Vec<String>,
+    pub horizon_remote: Option<Result<Vec<String>, String>>,
+    pub horizon_busy: Option<String>,
+    /// Версия для новой сборки Horizon
+    pub horizon_tag: String,
+    /// Открытое окно сборки Horizon
+    pub horizon_open: Option<String>,
+    pub horizon_procs: HashMap<String, (std::process::Child, DateTime<Utc>)>,
+    /// Все версии Minecraft: (id, 0 релиз / 1 снапшот / 2 старые беты и альфы)
+    pub versions_all: Vec<(String, u8)>,
+    /// Окно «Изменить группу» (PrismTroll): id сборки и вводимое имя
+    pub group_edit: Option<(String, String)>,
     pub running: HashMap<String, DateTime<Utc>>,
     pub launching: HashMap<String, f64>,
     pub jobs: Vec<Job>,
@@ -199,6 +220,8 @@ impl App {
             Ok("browse") => Page::Browse,
             Ok("skins") => Page::Skins,
             Ok("settings") => Page::Settings,
+            // в макете Prism Launcher основное окно — сетка сборок, как в Prism
+            _ if prefs.nav == crate::look::Nav::Prism => Page::Library,
             _ => Page::Home,
         };
         let tab: usize = std::env::var("TL_TAB").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -211,6 +234,18 @@ impl App {
             fwd: vec![],
             page_changed: 0.0,
             instances: vec![],
+            groups: vec![],
+            horizon: vec![],
+            horizon_home: HashMap::new(),
+            horizon_ver: HashMap::new(),
+            horizon_installed: vec![],
+            horizon_remote: None,
+            horizon_busy: None,
+            horizon_tag: crate::horizon::LATEST.into(),
+            horizon_open: None,
+            horizon_procs: HashMap::new(),
+            versions_all: vec![],
+            group_edit: None,
             running: HashMap::new(),
             launching: HashMap::new(),
             jobs: vec![],
@@ -319,8 +354,8 @@ impl App {
     }
 
     /// Котик в правом нижнем углу страницы (под содержимым), как в Prism Launcher.
-    fn draw_cat(&self, ui: &mut Ui) {
-        if self.prefs.cat == crate::cats::NONE_ID || self.prefs.cat_opacity == 0 {
+    pub(crate) fn draw_cat(&self, ui: &mut Ui) {
+        if self.prefs.cat_off || self.prefs.cat == crate::cats::NONE_ID || self.prefs.cat_opacity == 0 {
             return;
         }
         let Some(img) = self.cats.iter().find(|c| c.id == self.prefs.cat).and_then(|c| c.image(self.cat_seed)) else { return };
@@ -368,10 +403,19 @@ impl App {
     }
 
     pub fn inst(&self, id: &str) -> Option<&Inst> {
-        self.instances.iter().find(|i| i.id == id)
+        self.instances.iter().chain(self.horizon.iter()).find(|i| i.id == id)
     }
 
     pub fn go(&mut self, ui: &Ui, p: Page) {
+        // у сборки Horizon своё небольшое окно (версия, запуск, папка), а не страница
+        if let Page::Instance(id) = &p
+            && crate::horizon::is_horizon(id)
+        {
+            self.horizon_open = Some(id.clone());
+            self.be.horizon_versions();
+            let _ = ui;
+            return;
+        }
         if p != self.page {
             self.back.push(self.page.clone());
             self.fwd.clear();
@@ -407,7 +451,7 @@ impl App {
     }
 
     pub fn is_running(&self, id: &str) -> bool {
-        self.running.contains_key(id)
+        self.running.contains_key(id) || self.horizon_procs.contains_key(id)
     }
 
     pub fn is_launching(&self, id: &str, now: f64) -> bool {
@@ -417,6 +461,20 @@ impl App {
     /// Играть / остановить.
     pub fn play(&mut self, ui: &Ui, id: &str) {
         let now = Self::now(ui);
+        if crate::horizon::is_horizon(id) {
+            if let Some((mut c, _)) = self.horizon_procs.remove(id) {
+                let _ = c.kill();
+                let _ = c.wait();
+            } else {
+                match crate::horizon::play(id) {
+                    Ok(c) => {
+                        self.horizon_procs.insert(id.to_string(), (c, Utc::now()));
+                    }
+                    Err(e) => self.toasts.push(Toast { text: format!("Horizon: {e}"), error: true, born: now }),
+                }
+            }
+            return;
+        }
         if self.is_running(id) {
             self.be.kill(id.to_string());
             self.launching.remove(id);
@@ -427,6 +485,12 @@ impl App {
             self.launching.insert(id.to_string(), now);
             self.be.run(id.to_string());
         }
+    }
+
+    /// Список версий в окне «Новая сборка» по галочкам «Снапшоты» и «Беты и альфы».
+    pub fn filter_versions(&mut self) {
+        let (snap, beta) = (self.create.snapshots, self.create.beta);
+        self.versions = self.versions_all.iter().filter(|(_, k)| *k == 0 || (*k == 1 && snap) || (*k == 2 && beta)).map(|(v, _)| v.clone()).collect();
     }
 
     pub fn default_account(&self) -> Option<&Account> {
@@ -442,12 +506,14 @@ impl App {
                     self.be.load_users();
                     self.be.load_skins();
                     self.be.load_versions();
+                    self.be.horizon_refresh();
                     self.be.get_memory();
                     self.be.load_perf();
                     let p = self.page.clone();
                     self.on_enter(&p);
                 }
                 Msg::InitError(e) => self.init_error = Some(e),
+                Msg::Groups(g) => self.groups = g,
                 Msg::Instances(v) => {
                     if self.browse_target.is_none() {
                         self.browse_target = v.first().map(|i| i.id.clone());
@@ -603,7 +669,20 @@ impl App {
                 Msg::Screens(id, v) => {
                     self.screens.insert(id, v);
                 }
-                Msg::Versions(v) => self.versions = v,
+                Msg::Versions(v) => {
+                    self.versions_all = v;
+                    self.filter_versions();
+                }
+                Msg::Horizon(v) => {
+                    self.horizon_home = v.iter().map(|(i, h, _)| (i.id.clone(), h.clone())).collect();
+                    self.horizon_ver = v.iter().map(|(i, _, ver)| (i.id.clone(), ver.clone())).collect();
+                    self.horizon = v.into_iter().map(|(i, ..)| i).collect();
+                }
+                Msg::HorizonVersions(installed, remote) => {
+                    self.horizon_installed = installed;
+                    self.horizon_remote = Some(remote);
+                }
+                Msg::HorizonBusy(b) => self.horizon_busy = b,
                 Msg::Toast(text, error) => self.toasts.push(Toast { text, error, born: now }),
                 Msg::InstallDone(pid) => {
                     if let Some(id) = pid.strip_prefix("have:") {
@@ -763,6 +842,11 @@ impl App {
             if now - self.last_poll > 1.0 {
                 self.last_poll = now;
                 self.be.poll_status();
+                let before = self.horizon_procs.len();
+                self.horizon_procs.retain(|_, (c, _)| matches!(c.try_wait(), Ok(None)));
+                if self.horizon_procs.len() != before {
+                    self.be.horizon_refresh();
+                }
             }
             // во время игры список сборок трогаем реже — меньше обращений к базе и диску
             if now - self.last_update_check > 6.0 * 3600.0 && std::env::var_os("TL_NO_UPDATE").is_none() {
@@ -1199,6 +1283,7 @@ impl App {
         self.inst_dialogs(ctx);
 		self.import_dialog(ctx);
         self.update_dialog_ui(ctx);
+        self.horizon_dialog(ctx);
         let modal_frame = Frame::new().fill(PANEL()).corner_radius(rr(14)).stroke(Stroke::new(1.0, BORDER())).inner_margin(Margin::same(22));
 
         if self.create.open {
@@ -1225,21 +1310,68 @@ impl App {
                     });
                 });
                 label(ui, "Загрузчик", semibold(13.0), TEXT_DIM());
-                segmented(ui, Id::new("cr-loader"), &["Vanilla", "Fabric", "Forge", "NeoForge", "Quilt"], &mut self.create.loader);
-                label(ui, "Версия игры", semibold(13.0), TEXT_DIM());
-                let cur = self.versions.get(self.create.version).cloned().unwrap_or_else(|| "загрузка…".into());
-                egui::ComboBox::from_id_salt("cr-ver").selected_text(cur).width(200.0).height(320.0).show_ui(ui, |ui| {
-                    for (i, v) in self.versions.iter().enumerate() {
-                        ui.selectable_value(&mut self.create.version, i, v);
+                let loaders = ["Vanilla", "Fabric", "Forge", "NeoForge", "Quilt", "Horizon (Rust)"];
+                if segmented(ui, Id::new("cr-loader"), &loaders, &mut self.create.loader) && self.create.loader == 5 && self.horizon_remote.is_none() {
+                    self.be.horizon_versions();
+                }
+                let is_horizon = self.create.loader == 5;
+                let horizon_bin = is_horizon && crate::horizon::bin().is_some();
+                if is_horizon {
+                    label(ui, "Minecraft, переписанный на Rust (Horizon). Запускается через Horizon Launcher; для игры нужен вход Microsoft в нём. Моды Java тут не работают.", regular(13.0), TEXT_DIM());
+                    if !horizon_bin {
+                        label(ui, "Horizon Launcher ещё не установлен — TrollLauncher скачает его сам.", regular(13.0), TEXT());
+                        ui.add_enabled_ui(self.horizon_busy.is_none(), |ui| {
+                            if button(ui, "Скачать Horizon", Some(Icon::Download), Kind::Secondary, 32.0).clicked() {
+                                self.be.horizon_get_launcher();
+                            }
+                        });
+                    } else {
+                        label(ui, "Версия Horizon", semibold(13.0), TEXT_DIM());
+                        let mut tag = self.horizon_tag.clone();
+                        self.horizon_version_combo(ui, "cr-hz-ver", &mut tag);
+                        self.horizon_tag = tag;
                     }
-                });
+                    if let Some(b) = &self.horizon_busy {
+                        label(ui, b, medium(13.0), accent());
+                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+                    }
+                } else {
+                    label(ui, "Версия игры", semibold(13.0), TEXT_DIM());
+                    ui.horizontal(|ui| {
+                        let cur = self.versions.get(self.create.version).cloned().unwrap_or_else(|| "загрузка…".into());
+                        egui::ComboBox::from_id_salt("cr-ver").selected_text(cur).width(200.0).height(320.0).show_ui(ui, |ui| {
+                            for (i, v) in self.versions.iter().enumerate() {
+                                ui.selectable_value(&mut self.create.version, i, v);
+                            }
+                        });
+                        ui.add_space(8.0);
+                        let (mut snap, mut beta) = (self.create.snapshots, self.create.beta);
+                        let a = checkbox(ui, &mut snap, "Снапшоты").changed();
+                        let b = checkbox(ui, &mut beta, "Беты и альфы").changed();
+                        if a || b {
+                            let keep = self.versions.get(self.create.version).cloned();
+                            self.create.snapshots = snap;
+                            self.create.beta = beta;
+                            self.filter_versions();
+                            self.create.version = keep.and_then(|k| self.versions.iter().position(|v| *v == k)).unwrap_or(0);
+                        }
+                    });
+                    if self.create.snapshots || self.create.beta {
+                        label(ui, "Снапшоты и старые версии нестабильны; загрузчики модов для них часто недоступны.", regular(12.5), TEXT_FAINT());
+                    }
+                }
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    let ok = !self.create.name.trim().is_empty() && !self.versions.is_empty();
+                    let ok = !self.create.name.trim().is_empty() && if is_horizon { horizon_bin && self.horizon_busy.is_none() } else { !self.versions.is_empty() };
                     ui.add_enabled_ui(ok, |ui| {
                         if button(ui, "Создать", Some(Icon::Plus), Kind::Primary, 36.0).clicked() {
-                            let v = self.versions[self.create.version].clone();
-                            self.be.create_instance(self.create.name.trim().to_string(), v, self.create.loader, self.create.icon.take());
+                            if is_horizon {
+                                self.be.horizon_create(self.create.name.trim().to_string(), self.horizon_tag.clone());
+                                self.create.icon = None;
+                            } else {
+                                let v = self.versions[self.create.version].clone();
+                                self.be.create_instance(self.create.name.trim().to_string(), v, self.create.loader, self.create.icon.take());
+                            }
                             self.create.open = false;
                             self.create.name.clear();
                         }
@@ -1359,7 +1491,11 @@ impl App {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     if button(ui, "Удалить", None, Kind::Danger, 36.0).clicked() {
-                        self.be.remove_instance(id.clone());
+                        if crate::horizon::is_horizon(&id) {
+                            self.be.horizon_delete(id.clone());
+                        } else {
+                            self.be.remove_instance(id.clone());
+                        }
                         self.confirm_delete = None;
                         self.page = Page::Library;
                     }
@@ -1484,6 +1620,15 @@ impl eframe::App for App {
 
         let nav = self.prefs.nav;
         use crate::look::Nav;
+        if nav == Nav::Prism {
+            self.prism_ui(ui);
+            let ctx = ui.ctx().clone();
+            self.dialogs(&ctx);
+            self.prism_dialogs(&ctx);
+            self.toasts_ui(ui);
+            self.file_drop_dialog(&ctx);
+            return;
+        }
         if matches!(nav, Nav::Side | Nav::Wide) {
             egui::Panel::left("nav")
                 .exact_size(if nav == Nav::Wide { 224.0 } else { 64.0 })
@@ -1511,7 +1656,7 @@ impl eframe::App for App {
         let rad = (14.0 * round_k()).round().min(255.0) as u8;
         let (corners, outer) = match nav {
             Nav::Side | Nav::Wide => (CornerRadius { nw: rad, ne: 0, sw: 0, se: 0 }, Margin::ZERO),
-            Nav::Top => (CornerRadius::same(rad), Margin { left: 8, right: 8, top: 8, bottom: 8 }),
+            Nav::Top | Nav::Prism => (CornerRadius::same(rad), Margin { left: 8, right: 8, top: 8, bottom: 8 }),
             Nav::Dock => (CornerRadius::same(rad), Margin { left: 8, right: 8, top: 0, bottom: 0 }),
         };
         let d = density();

@@ -7,6 +7,7 @@ use crate::state::{
     ProjectType, State, Version,
 };
 use crate::util::fetch::{self, DownloadMeta, DownloadReason};
+use crate::state::instances::trollland_policy;
 use crate::util::io;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -164,6 +165,10 @@ pub(crate) async fn resolve_install_plan(
     request: InstanceInstallProjectRequest,
     state: &State,
 ) -> crate::Result<ResolveContentPlan> {
+	let protected = trollland_policy::applies_to_id(instance_id, state).await?;
+	if protected && let Some(prohibited) = trollland_policy::prohibited_project(&request.project_id) {
+		return Err(prohibited.error());
+	}
     let content_set =
         content_rows::get_applied_content_set(instance_id, &state.pool)
             .await?
@@ -197,9 +202,14 @@ pub(crate) async fn resolve_install_plan(
         existing_project_ids,
     };
 
-    modrinth_content_management::resolve_content(provider, request)
+    let plan = modrinth_content_management::resolve_content(provider, request)
         .await
-        .map_err(resolver_error)
+        .map_err(resolver_error)?;
+	if protected && let Some(prohibited) = std::iter::once(&plan.primary).chain(&plan.dependencies)
+		.find_map(|content| trollland_policy::prohibited_project(&content.project_id)) {
+		return Err(prohibited.error());
+	}
+	Ok(plan)
 }
 
 pub(crate) async fn install_resolved_content_plan(
@@ -427,6 +437,19 @@ pub(crate) async fn download_project_version_with_progress(
                 "No files for input version present!".to_string(),
             )
         })?;
+	let project_type = ProjectType::get_from_loaders(version.loaders.clone())
+		.ok_or_else(|| {
+			crate::ErrorKind::InputError(format!(
+				"Unable to infer project type for version {version_id}"
+			))
+		})?;
+	let relative = format!("{}/{}", project_type.get_folder(), file.filename);
+	let protected = trollland_policy::is_checked_path(&relative)
+		&& trollland_policy::applies_to(&scope.instance, &state.pool).await?;
+	if protected && let Some(prohibited) = trollland_policy::prohibited_project(&version.project_id)
+		.or_else(|| trollland_policy::prohibited_download(&file.url)) {
+		return Err(prohibited.error());
+	}
     let download_meta = DownloadMeta {
         reason,
         game_version: content_set.game_version,
@@ -442,12 +465,9 @@ pub(crate) async fn download_project_version_with_progress(
         progress,
     )
     .await?;
-    let project_type = ProjectType::get_from_loaders(version.loaders.clone())
-        .ok_or_else(|| {
-        crate::ErrorKind::InputError(format!(
-            "Unable to infer project type for version {version_id}"
-        ))
-    })?;
+	if protected && let Some(prohibited) = trollland_policy::inspect_path(downloaded_file.path(), &relative).await? {
+		return Err(prohibited.error());
+	}
     let project_id = version.project_id.clone();
     let version_id = version.id.clone();
 
@@ -538,15 +558,18 @@ pub(crate) async fn add_project_from_path(
                 .await?
         }
     };
+	let relative = format!("{}/{}", project_type.get_folder(), file_name);
+	if trollland_policy::is_checked_path(&relative)
+		&& trollland_policy::applies_to_id(instance_id, state).await?
+		&& let Some(prohibited) = trollland_policy::inspect_path(path, &relative).await?
+	{
+		return Err(prohibited.error());
+	}
     let stored_file = state.content_store.import_file(path, state).await?;
     install_stored_file(
         instance_id,
         InstallContent {
-            requested_path: &format!(
-                "{}/{}",
-                project_type.get_folder(),
-                file_name
-            ),
+            requested_path: &relative,
             stored_file: &stored_file,
             project_type,
             source_kind: ContentSourceKind::Local,
@@ -581,6 +604,14 @@ pub(crate) async fn add_project_bytes(
             super::embedded_content_metadata::infer_project_type_bytes(&bytes)?
         }
     };
+	let relative = format!("{}/{}", project_type.get_folder(), file_name);
+	if trollland_policy::is_checked_path(&relative)
+		&& trollland_policy::applies_to_id(instance_id, state).await?
+		&& let Some(prohibited) = project_id.and_then(trollland_policy::prohibited_project)
+			.or_else(|| trollland_policy::inspect_bytes(&bytes, &relative))
+	{
+		return Err(prohibited.error());
+	}
     if let Some(expected) = hash {
         crate::state::content_store::validate_digest(expected, 40)?;
         if sha1_smol::Sha1::from(&bytes[..]).hexdigest() != expected {
@@ -598,11 +629,7 @@ pub(crate) async fn add_project_bytes(
     install_stored_file(
         instance_id,
         InstallContent {
-            requested_path: &format!(
-                "{}/{}",
-                project_type.get_folder(),
-                file_name
-            ),
+            requested_path: &relative,
             stored_file: &stored_file,
             project_type,
             source_kind,

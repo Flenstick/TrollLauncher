@@ -12,6 +12,7 @@ use crate::pack::install_from::{
     EnvType, PackFile, PackFileHash, set_instance_information,
 };
 use crate::state::instances::ContentSourceKind;
+use crate::state::instances::trollland_policy;
 use crate::state::instances::commands::{
     ContentOrigin, InstallContent, install_stored_file,
 };
@@ -64,6 +65,7 @@ fn is_ignored_mrpack_warning_file(path: &str) -> bool {
 #[derive(Clone)]
 struct ModpackContentInstallContext {
     instance_id: String,
+	protected: bool,
     instance_path: String,
     instance_full_path: PathBuf,
     download_meta: DownloadMeta,
@@ -200,6 +202,19 @@ impl MrpackZipReader {
             }
         }
     }
+
+	async fn read_limited_entry(&mut self, index: usize, limit: u64) -> crate::Result<Vec<u8>> {
+		use futures_lite::io::AsyncReadExt;
+		let mut value = Vec::new();
+		match self {
+			Self::Memory(reader) => reader.reader_with_entry(index).await?.take(limit + 1).read_to_end(&mut value).await?,
+			Self::File(reader) => reader.reader_with_entry(index).await?.take(limit + 1).read_to_end(&mut value).await?,
+		};
+		if value.len() as u64 > limit {
+			value.clear();
+		}
+		Ok(value)
+	}
 
     async fn extract_entry(
         &mut self,
@@ -711,6 +726,7 @@ async fn install_zipped_mrpack_files_with_reporter_inner(
                 ))
             })?;
     let instance_path = metadata.instance.path.clone();
+	let protected = trollland_policy::applies_to(&metadata.instance, &state.pool).await?;
     let download_meta = DownloadMeta {
         reason,
         game_version: metadata.applied_content_set.game_version.clone(),
@@ -769,6 +785,7 @@ async fn install_zipped_mrpack_files_with_reporter_inner(
     );
     let content_context = ModpackContentInstallContext {
         instance_id: instance_id.clone(),
+		protected,
         instance_path: instance_path.clone(),
         instance_full_path: instance_full_path.clone(),
         download_meta,
@@ -816,6 +833,19 @@ async fn install_zipped_mrpack_files_with_reporter_inner(
                         .await?;
                     return Ok(());
                 }
+				let file_info = project.hashes.get(&PackFileHash::Sha1)
+					.and_then(|hash| content_context.file_infos_by_hash.get(hash));
+				let protected = content_context.protected && trollland_policy::is_checked_path(&project_path);
+				if protected && let Some(prohibited) = file_info
+					.and_then(|file| trollland_policy::prohibited_project(&file.project_id))
+					.or_else(|| project.downloads.iter().find_map(|url| trollland_policy::prohibited_download(url)))
+				{
+					content_context.mark_downloaded(project_size, InstallJobEventKind::ContentFileSkipped {
+						path: project_path,
+						reason: prohibited.error().to_string(),
+					}).await?;
+					return Ok(());
+				}
 
                 let context =
                     InstallErrorContext::new("download modpack content file")
@@ -928,6 +958,13 @@ async fn install_zipped_mrpack_files_with_reporter_inner(
                     }
                 };
                 let downloaded_bytes = if file.reused { 0 } else { file.size };
+				if protected && let Some(prohibited) = trollland_policy::inspect_path(file.path(), &project_path).await? {
+					content_context.mark_downloaded(project_size, InstallJobEventKind::ContentFileSkipped {
+						path: project_path,
+						reason: prohibited.error().to_string(),
+					}).await?;
+					return Ok(());
+				}
 
                 if crate::state::content_store::is_managed_content_path(
                     &project_path,
@@ -939,10 +976,6 @@ async fn install_zipped_mrpack_files_with_reporter_inner(
                                     "Unsupported content path",
                                 )
                             })?;
-                    let file_info =
-                        project.hashes.get(&PackFileHash::Sha1).and_then(
-                            |hash| content_context.file_infos_by_hash.get(hash),
-                        );
                     let stored_file = file.store_file(state).await?;
                     content_context
                         .reporter
@@ -1028,7 +1061,11 @@ async fn install_zipped_mrpack_files_with_reporter_inner(
     let has_default_options_override =
         has_override("overrides/config/defaultoptions/options.txt")
             || has_override("overrides/config/defaultoptions/keybindings.txt");
-    let override_file_entries = zip_reader
+    let servers_override_path = MODPACK_SERVER_PATHS.into_iter().find(|path| {
+        has_override(&format!("client-overrides/{path}"))
+            || has_override(&format!("overrides/{path}"))
+    });
+    let mut override_file_entries = zip_reader
         .file()
         .entries()
         .iter()
@@ -1054,14 +1091,36 @@ async fn install_zipped_mrpack_files_with_reporter_inner(
                 .then(|| (index, file.clone()))
         })
         .collect::<Vec<_>>();
+	if protected {
+		let mut blocked_roots = Vec::new();
+		let paths = override_file_entries.iter()
+			.filter_map(|(_, entry)| entry.filename().as_str().ok())
+			.collect::<HashSet<_>>();
+		for (index, entry) in &override_file_entries {
+			let Ok(path) = entry.filename().as_str() else { continue };
+			let Some((source, relative)) = path.split_once('/') else { continue };
+			let Some(pack) = relative.strip_suffix("/pack.mcmeta") else { continue };
+			if !pack.starts_with("resourcepacks/") || !trollland_policy::is_checked_path(pack)
+				|| entry.uncompressed_size() > 1024 * 1024
+			{
+				continue;
+			}
+			let description = zip_reader.read_limited_entry(*index, 1024 * 1024).await?;
+			if trollland_policy::inspect_pack_metadata(&description, |asset| {
+				paths.contains(format!("{source}/{pack}/{asset}").as_str())
+			}) {
+				blocked_roots.push(format!("{pack}/"));
+			}
+		}
+		override_file_entries.retain(|(_, entry)| {
+			let Some((_, relative)) = entry.filename().as_str().ok().and_then(|path| path.split_once('/')) else { return true };
+			!blocked_roots.iter().any(|root| relative.starts_with(root))
+		});
+	}
     let override_total_bytes = override_file_entries
         .iter()
         .map(|(_, file)| file.uncompressed_size())
         .sum::<u64>();
-    let servers_override_path = MODPACK_SERVER_PATHS.into_iter().find(|path| {
-        has_override(&format!("client-overrides/{path}"))
-            || has_override(&format!("overrides/{path}"))
-    });
     let game_options_override_source = if has_client_options_override {
         Some(GameOptionsPackSource::ClientOverrides)
     } else if has_options_override {
@@ -1192,6 +1251,13 @@ async fn install_zipped_mrpack_files_with_reporter_inner(
         let (size, hash) = reporter
             .preserve_failure_context(override_context, extract_result)
             .await?;
+		if protected && let Some(prohibited) = trollland_policy::inspect_path(&path, relative_override_file_path.as_str()).await? {
+			if temporary.is_none() {
+				tokio::fs::remove_file(&path).await?;
+			}
+			tracing::info!(path = %relative_override_file_path, content = prohibited.name(), "Skipped prohibited TrollLand modpack override");
+			continue;
+		}
         let modified_at_ns =
             crate::state::file_modified_at_ns(&io::metadata(&path).await?)?;
 

@@ -140,7 +140,7 @@ impl App {
             for (key, name, col) in opts {
                 let (r, resp) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
                 let t = hover_anim(ui, resp.id, resp.hovered());
-                let sel = ui.ctx().animate_bool_with_time(Id::new("acc").with(key.map(|k| k as i64).unwrap_or(-1)), self.prefs.accent == key, 0.15);
+                let sel = ui.ctx().animate_bool_with_time(Id::new("acc").with(key.map(|k| k as i64).unwrap_or(-1)), self.prefs.custom_colors.accent.is_none() && self.prefs.accent == key, 0.15);
                 let rad = 12.0 + t * 1.5;
                 ui.painter().circle_filled(r.center(), rad, col);
                 if key.is_none() {
@@ -157,8 +157,10 @@ impl App {
         });
         if let Some(k) = acc_pick {
             self.prefs.accent = k;
+			self.prefs.custom_colors.accent = None;
             self.apply_look(ui.ctx());
         }
+		self.custom_colors_settings(ui);
         ui.add_space(8.0);
         ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, BORDER()));
         ui.add_space(8.0);
@@ -243,7 +245,52 @@ impl App {
                 crate::prefs::save(&self.prefs);
             }
         });
+        setting_row(ui, "Скорость прокрутки", "Сколько проезжает список за один щелчок колеса: моды, сборки, обзор", |ui| {
+            let resp = ui.add(egui::Slider::new(&mut self.prefs.scroll_speed, 1.0..=5.0).step_by(0.5).fixed_decimals(1).suffix("×"));
+            if resp.changed() {
+                self.apply_look(ui.ctx());
+            }
+        });
     }
+
+	/// Свои цвета поверх темы: каждый пункт можно вернуть «как в теме».
+	fn custom_colors_settings(&mut self, ui: &mut Ui) {
+		let mut colors = self.prefs.custom_colors;
+		let effective = colors.palette(theme_index(&self.prefs.theme), self.prefs.accent);
+		egui::CollapsingHeader::new("Свои цвета").default_open(colors != CustomColors::default()).show(ui, |ui| {
+			egui::Grid::new("custom-launcher-colors").spacing(vec2(16.0, 6.0)).show(ui, |ui| {
+				for (name, color, value) in [
+					("Акцент", &mut colors.accent, effective.accent),
+					("Фон страниц", &mut colors.content, effective.content),
+					("Панели меню", &mut colors.sidebar, effective.bg),
+					("Карточки", &mut colors.cards, effective.panel),
+					("Кнопки и всплывающие окна", &mut colors.controls, effective.raised),
+					("Поля ввода", &mut colors.input, effective.input),
+					("Текст", &mut colors.text, effective.text),
+				] {
+					label(ui, name, regular(13.0), TEXT());
+					let [r, g, b, _] = hex(value).to_array();
+					let mut channels = [r, g, b];
+					ui.push_id(name, |ui| {
+						if ui.color_edit_button_srgb(&mut channels).on_hover_text(format!("#{value:06X}")).changed() {
+							*color = Some(rgb(egui::Color32::from_rgb(channels[0], channels[1], channels[2])));
+						}
+					});
+					if color.is_some() && button(ui, "Как в теме", None, Kind::Ghost, 27.0).clicked() {
+						*color = None;
+					}
+					ui.end_row();
+				}
+			});
+			if colors != CustomColors::default() && button(ui, "Сбросить свои цвета", None, Kind::Secondary, 30.0).clicked() {
+				colors = CustomColors::default();
+			}
+		});
+		if self.prefs.custom_colors != colors {
+			self.prefs.custom_colors = colors;
+			self.apply_look(ui.ctx());
+		}
+	}
 
     /// Меню, форма, иконки и шрифт.
     fn set_layout_parts(&mut self, ui: &mut Ui) {
@@ -257,6 +304,9 @@ impl App {
                 changed = true;
             }
         });
+        if self.prefs.nav == crate::look::Nav::Prism {
+            changed |= self.prism_layout_settings(ui);
+        }
         setting_row(ui, "Скругление углов", "0 % — квадратные, как в Prism и Minecraft", |ui| {
             let mut pct = self.prefs.round * 100.0;
             let resp = ui.add(egui::Slider::new(&mut pct, 0.0..=200.0).step_by(5.0).fixed_decimals(0).suffix(" %"));
@@ -628,6 +678,42 @@ impl App {
     }
 }
 
+impl App {
+    /// Настройки макета «Prism Launcher» (видны, когда меню — «Как в Prism»). Возвращает «изменено».
+    fn prism_layout_settings(&mut self, ui: &mut Ui) -> bool {
+        let mut changed = false;
+        ui.add_space(6.0);
+        label(ui, "Макет Prism Launcher", semibold(14.5), TEXT());
+        ui.add_space(2.0);
+        setting_row(ui, "Иконки", "Пиксельные, как в Prism, или иконки лаунчера в выбранном ниже стиле", |ui| {
+            let mut i = usize::from(self.prefs.prism_icons == "theme");
+            if segmented(ui, Id::new("prism-icons"), &["Как в Prism", "Стиль лаунчера"], &mut i) {
+                self.prefs.prism_icons = if i == 1 { "theme".into() } else { "pixel".into() };
+                changed = true;
+            }
+        });
+        setting_row(ui, "Размер иконок сборок", "Плитки в сетке экземпляров", |ui| {
+            const S: [f32; 4] = [32.0, 48.0, 64.0, 80.0];
+            let mut i = S.iter().position(|v| (*v - self.prefs.prism_tile).abs() < 1.0).unwrap_or(1);
+            if segmented(ui, Id::new("prism-tile"), &["32", "48", "64", "80"], &mut i) {
+                self.prefs.prism_tile = S[i];
+                changed = true;
+            }
+        });
+        setting_row(ui, "Строка новостей", "Версия лаунчера и «Больше новостей» под сеткой", |ui| {
+            changed |= toggle(ui, &mut self.prefs.prism_news).changed();
+        });
+        setting_row(ui, "Строка статуса", "Версия Minecraft, последний запуск и время в игре выбранной сборки", |ui| {
+            changed |= toggle(ui, &mut self.prefs.prism_status).changed();
+        });
+        setting_row(ui, "Кнопка котика", "Включать и прятать котика с тулбара", |ui| {
+            changed |= toggle(ui, &mut self.prefs.prism_cat_button).changed();
+        });
+        ui.add_space(8.0);
+        changed
+    }
+}
+
 fn dirs_base() -> std::path::PathBuf {
     crate::sys::data_root().join(crate::backend::APP_ID)
 }
@@ -662,6 +748,32 @@ fn preset_preview(p: &egui::Painter, r: Rect, pr: &crate::look::Preset, hover: f
                 p.rect_filled(Rect::from_min_size(pos2(x + 7.0, win.top() + 8.0), vec2(14.0, 3.0)), 1, hex(c.dim));
             }
             Rect::from_min_max(pos2(win.left() + 5.0, win.top() + 19.0), win.max - vec2(5.0, 5.0))
+        }
+        Nav::Prism => {
+            // тулбар, панель действий справа, сетка плиток, строка статуса
+            for i in 0..4 {
+                let x = win.left() + 8.0 + i as f32 * 24.0;
+                p.rect_filled(Rect::from_min_size(pos2(x, win.top() + 6.0), vec2(5.0, 5.0)), 1, hex(if i == 0 { c.green } else { 0x8b5d33 }));
+                p.rect_filled(Rect::from_min_size(pos2(x + 7.0, win.top() + 7.0), vec2(12.0, 3.0)), 1, hex(c.dim));
+            }
+            let side = Rect::from_min_max(pos2(win.right() - 34.0, win.top() + 16.0), pos2(win.right(), win.bottom() - 12.0));
+            p.rect_filled(side, 0, hex(c.panel));
+            p.rect_filled(Rect::from_center_size(pos2(side.center().x, side.top() + 10.0), Vec2::splat(10.0)), 1, hex(0x3cb44b));
+            for k in 0..5 {
+                p.rect_filled(Rect::from_min_size(pos2(side.left() + 5.0, side.top() + 22.0 + k as f32 * 7.0), vec2(20.0, 3.0)), 1, hex(c.dim));
+            }
+            let grid = Rect::from_min_max(pos2(win.left(), win.top() + 16.0), pos2(side.left(), win.bottom() - 12.0));
+            p.rect_filled(grid, 0, hex(c.content));
+            for k in 0..8 {
+                let (cx, cy) = (grid.left() + 12.0 + (k % 4) as f32 * 22.0, grid.top() + 12.0 + (k / 4) as f32 * 26.0);
+                p.rect_filled(Rect::from_center_size(pos2(cx, cy), Vec2::splat(11.0)), 1, hex(if k == 0 { c.accent } else { 0x6b8f3c }));
+                p.rect_filled(Rect::from_center_size(pos2(cx, cy + 11.0), vec2(16.0, 3.0)), 1, hex(c.dim));
+            }
+            p.rect_filled(Rect::from_min_size(pos2(win.left() + 6.0, win.bottom() - 8.0), vec2(80.0, 3.0)), 1, hex(c.dim));
+            let ring = if sel > 0.0 { accent().gamma_multiply(sel) } else { BORDER().lerp_to_gamma(TEXT_DIM(), hover) };
+            p.rect_stroke(win, rad(10.0), Stroke::new(if sel > 0.0 { 2.0 } else { 1.0 }, ring), StrokeKind::Outside);
+            text_at(p, pos2(r.left() + 2.0, r.bottom() - 9.0), Align2::LEFT_CENTER, pr.name, if sel > 0.5 { semibold(13.0) } else { medium(13.0) }, if sel > 0.5 { TEXT() } else { TEXT_DIM().lerp_to_gamma(TEXT(), hover) });
+            return;
         }
         Nav::Dock => {
             let dock = Rect::from_center_size(pos2(win.center().x, win.bottom() - 10.0), vec2(70.0, 13.0));

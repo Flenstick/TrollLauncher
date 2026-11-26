@@ -6,6 +6,7 @@ use crate::state::content_store::{
     content_file_path, input,
 };
 use crate::state::instances::adapters::sqlite::{content_rows, instance_rows};
+use crate::state::instances::trollland_policy;
 use crate::state::instances::{ContentSourceKind, InstanceFile};
 use crate::state::{
     KnownModrinthFile, ProjectType, State, cache_file_hash_metadata,
@@ -124,6 +125,49 @@ impl<'a> InstanceContent<'a> {
         &self.instance
     }
 
+	pub(super) async fn purge_prohibited_content(&self) -> crate::Result<()> {
+		let candidates = trollland_policy::scan_instance(&self.instance, self.state).await?;
+		if candidates.is_empty() {
+			return Ok(());
+		}
+		let registered = content_rows::get_instance_files(&self.instance.id, &self.state.pool).await?;
+		for file in candidates {
+			let path = self.state.content_store.instance_path(&self.instance.path, &file.relative).await?;
+			if trollland_policy::inspect_path(&path, &file.relative).await? != Some(file.content) {
+				continue;
+			}
+			if file.is_directory {
+				trollland_policy::remove_pack_directory(&path).await?;
+			} else {
+				let row = registered.iter().find(|row| content_file_path(row) == file.relative);
+				let remove_record = if let Some(row) = row {
+					match self.state.content_store.file_content(row).await? {
+						FileContent::Stored { stored_file, .. } => trollland_policy::inspect_path(&stored_file.path, &file.relative).await?.is_some(),
+						FileContent::Unmanaged => true,
+						FileContent::Damaged(_) => false,
+					}
+				} else { false };
+				if let Some(row) = row.filter(|_| remove_record) {
+					let mut tx = self.state.pool.begin_with("BEGIN IMMEDIATE").await?;
+					if let Some(set_id) = &self.content_set_id {
+						content_rows::remove_content_entries_for_file(set_id, &row.id, &mut tx).await?;
+					}
+					content_rows::remove_instance_file_by_relative_path(&self.instance.id, &row.relative_path, &mut tx).await?;
+					trollland_policy::unlink_file(&path).await?;
+					tx.commit().await?;
+				} else {
+					trollland_policy::unlink_file(&path).await?;
+				}
+			}
+			tracing::info!(instance_id = %self.instance.id, path = %file.relative, "Removed prohibited TrollLand content");
+			let _ = crate::event::emit::emit_warning(&format!(
+				"В сборке TrollLand удалён {} ({})",
+				file.content.name(), file.relative,
+			)).await;
+		}
+		Ok(())
+	}
+
     fn content_scope(&self) -> crate::Result<ContentScope> {
         Ok(ContentScope {
             instance: self.instance.clone(),
@@ -234,6 +278,16 @@ impl<'a> InstanceContent<'a> {
         {
             return Err(input("Unsupported content destination"));
         }
+		if trollland_policy::is_checked_path(relative_path)
+			&& trollland_policy::applies_to(&self.instance, &self.state.pool).await?
+		{
+			if let Some(prohibited) = request.origin.and_then(|origin| trollland_policy::prohibited_project(origin.project_id)) {
+				return Err(prohibited.error());
+			}
+			if let Some(prohibited) = trollland_policy::inspect_path(&request.stored_file.path, relative_path).await? {
+				return Err(prohibited.error());
+			}
+		}
         let previous_path = request.previous_path.map(canonical_content_path);
         for file in content_rows::get_instance_files(
             &self.instance.id,
@@ -376,6 +430,12 @@ impl<'a> InstanceContent<'a> {
                 storage: binding,
                 stored_file,
             } => {
+				if enabled && trollland_policy::is_checked_path(canonical_path)
+					&& trollland_policy::applies_to(&self.instance, &self.state.pool).await?
+					&& let Some(prohibited) = trollland_policy::inspect_path(&stored_file.path, canonical_path).await?
+				{
+					return Err(prohibited.error());
+				}
                 match self
                     .state
                     .content_store

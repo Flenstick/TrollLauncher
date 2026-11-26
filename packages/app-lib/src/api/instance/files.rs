@@ -191,6 +191,14 @@ pub async fn write_instance_file(
         .await?
         .path()
         .to_path_buf();
+	let relative = normalized(path);
+	use crate::state::instances::trollland_policy;
+	if trollland_policy::is_checked_path(relative)
+		&& trollland_policy::applies_to_id(instance_id, &state).await?
+		&& let Some(prohibited) = trollland_policy::inspect_bytes(bytes, relative)
+	{
+		return Err(prohibited.error());
+	}
     if create_only && fs::symlink_metadata(&destination).await.is_ok() {
         return Err(input("A file already exists at this path"));
     }
@@ -244,8 +252,16 @@ pub async fn rename_instance_file(
     let state = State::get().await?;
     let _instance = state.lock_instance_content(instance_id).await;
     let _files = state.content_store.files_lock.lock().await;
+	let relative = normalized(destination);
     let source = resolve(&state, instance_id, source, true).await?;
     let destination = resolve(&state, instance_id, destination, true).await?;
+	use crate::state::instances::trollland_policy;
+	if trollland_policy::is_checked_path(relative)
+		&& trollland_policy::applies_to_id(instance_id, &state).await?
+		&& let Some(prohibited) = trollland_policy::inspect_path(source.path(), relative).await?
+	{
+		return Err(prohibited.error());
+	}
     if fs::symlink_metadata(destination.path()).await.is_ok() {
         return Err(input("The destination already exists"));
     }

@@ -48,6 +48,7 @@ pub(crate) async fn sync_instance_content_files(
             )
             .await;
         }
+		instance_content.purge_prohibited_content().await?;
         let snapshot = filesystem::scan_content_files(
             &state.directories.instances_dir(),
             &instance.path,

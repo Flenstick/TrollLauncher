@@ -210,8 +210,9 @@ impl Backend {
                     let _ = tx.send(Msg::Toast(format!("Настройки сборки: {e}"), true));
                 }
             }
+            // Список обновляем после записи, чтобы новое имя сразу появилось в сайдбаре.
+            Backend::refresh_instances_tx(&tx).await;
         });
-        self.refresh_instances();
     }
 
     pub fn list_export_root(&self, id: String) {

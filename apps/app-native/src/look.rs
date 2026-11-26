@@ -24,9 +24,12 @@ pub enum Nav {
     Top,
     /// Док снизу
     Dock,
+    /// Окно как в Prism Launcher: тулбар, сетка сборок по группам, панель действий справа, строка статуса
+    Prism,
 }
 
-pub const NAVS: [(Nav, &str); 4] = [(Nav::Side, "Слева"), (Nav::Wide, "С подписями"), (Nav::Top, "Сверху"), (Nav::Dock, "Снизу")];
+pub const NAVS: [(Nav, &str); 5] =
+    [(Nav::Side, "Слева"), (Nav::Wide, "С подписями"), (Nav::Top, "Сверху"), (Nav::Dock, "Снизу"), (Nav::Prism, "Как в Prism")];
 
 // ───────────────────────── макеты ─────────────────────────
 
@@ -64,7 +67,7 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "prism",
-        name: "Prism Launcher",
+        name: "PrismTroll",
         desc: "Тулбар с подписями сверху, серый Fusion, почти квадратные углы, цветные иконки и шрифт системы",
         theme: "prism",
         nav: Nav::Top,
@@ -72,6 +75,17 @@ pub const PRESETS: &[Preset] = &[
         density: 0.85,
         icons: "color",
         font: PresetFont::System(&["Noto Sans", "Segoe UI", "Cantarell", "DejaVu Sans", "Liberation Sans", "Arial"]),
+    },
+    Preset {
+        id: "prismlauncher",
+        name: "Prism Launcher",
+        desc: "Окно один в один как Prism Launcher: тулбар, сетка сборок по группам, действия справа, котик и строка статуса",
+        theme: "prismtroll",
+        nav: Nav::Prism,
+        round: 0.15,
+        density: 0.85,
+        icons: "color",
+        font: PresetFont::System(&["Pixeloid Sans", "Noto Sans", "Segoe UI", "Cantarell", "DejaVu Sans", "Liberation Sans", "Arial"]),
     },
     Preset {
         id: "pixel",
@@ -152,7 +166,7 @@ static APPLIED_ICONS: Mutex<String> = Mutex::new(String::new());
 
 /// Применить облик из настроек. Шрифты и иконки перегружаются, только если поменялись.
 pub fn apply(ctx: &egui::Context, p: &crate::prefs::Prefs) {
-    set_theme(theme_index(&p.theme), p.accent);
+    set_theme(theme_index(&p.theme), p.accent, p.custom_colors);
     set_shape(p.round, p.density);
     let fk = format!("{}|{}", p.font, p.font_files.join(";"));
     let mut af = APPLIED_FONT.lock().unwrap();
@@ -167,6 +181,8 @@ pub fn apply(ctx: &egui::Context, p: &crate::prefs::Prefs) {
         *ai = ik;
     }
     apply_style(ctx);
+    let speed = 40.0 * p.scroll_speed.clamp(0.5, 6.0);
+    ctx.options_mut(|o| o.input_options.line_scroll_speed = speed);
 }
 
 /// Перечитать свой набор иконок с диска.

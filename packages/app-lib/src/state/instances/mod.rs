@@ -7,6 +7,7 @@ pub(crate) use self::model::{StoredOption, StoredPreference};
 
 pub(crate) mod adapters;
 pub(crate) mod commands;
+pub(crate) mod trollland_policy;
 pub use self::commands::{
     AppliedContentSetPatch, CreateInstance, EditInstance,
     InstanceLaunchOverridesPatch, InstanceMetadata,

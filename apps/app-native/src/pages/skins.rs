@@ -18,7 +18,10 @@ impl App {
         let equipped_id = acc.as_ref().and_then(|a| self.equipped_skin_of(a));
         let sel: Option<SkinItem> = self.skin_sel.as_ref().and_then(|s| self.skins.iter().find(|i| &i.id == s)).cloned();
 
-        ui.horizontal_top(|ui| {
+        // узкое окно: превью над сеткой, а не рядом (иначе подписи и кнопки налезают друг на друга)
+        let narrow = ui.available_width() < 860.0;
+        let layout = if narrow { Layout::top_down(Align::Min) } else { Layout::left_to_right(Align::Min) };
+        ui.with_layout(layout, |ui| {
             // ── большое 3D-превью
             ui.allocate_ui_with_layout(vec2(320.0, 10.0), Layout::top_down(Align::Min), |ui| {
                 card_frame().show(ui, |ui| {
@@ -68,8 +71,8 @@ impl App {
                             }
                             label(ui, "Ходьба", regular(13.0), TEXT_DIM());
                         });
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 8.0;
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
                             if equipped_id.as_deref() == Some(&s.id) {
                                 button(ui, "Сейчас надет", Some(Icon::Check), Kind::Secondary, 36.0);
                             } else if let Some(a) = acc.clone() {
@@ -97,30 +100,43 @@ impl App {
                     }
                 });
             });
-            ui.add_space(22.0);
+            ui.add_space(if narrow { 16.0 } else { 22.0 });
 
             // ── сетка
             ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    let favs = self.skins.iter().filter(|s| s.favorite).count();
-                    let labels = vec![format!("Все  {}", self.skins.len()), format!("Избранное  {favs}")];
-                    tabs(ui, Id::new("skin-tabs"), &labels, &mut self.skin_tab);
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
-                        if button(ui, "PNG-файл", Some(Icon::Plus), Kind::Primary, 34.0).clicked() {
-                            self.be.pick(Pick::SkinFile);
-                        }
-                        if button(ui, "Нарисовать", Some(Icon::Image), Kind::Secondary, 34.0).on_hover_text("Новый скин в редакторе").clicked() {
-                            self.open_skin_editor(None);
-                        }
-                        if button(ui, "По нику", Some(Icon::User), Kind::Secondary, 34.0).clicked() {
-                            self.nick.open = true;
-                        }
-                        if button(ui, "Из sfatm", Some(Icon::Download), Kind::Secondary, 34.0).on_hover_text("Забрать скины из гардероба мода sfatm в сборках").clicked() {
-                            self.be.import_sfatm_skins();
-                        }
+                let favs = self.skins.iter().filter(|s| s.favorite).count();
+                let labels = vec![format!("Все  {}", self.skins.len()), format!("Избранное  {favs}")];
+                // кнопки справа от вкладок, а если места мало — отдельной строкой с переносом
+                let buttons = |this: &mut Self, ui: &mut Ui| {
+                    if button(ui, "PNG-файл", Some(Icon::Plus), Kind::Primary, 34.0).clicked() {
+                        this.be.pick(Pick::SkinFile);
+                    }
+                    if button(ui, "Нарисовать", Some(Icon::Image), Kind::Secondary, 34.0).on_hover_text("Новый скин в редакторе").clicked() {
+                        this.open_skin_editor(None);
+                    }
+                    if button(ui, "По нику", Some(Icon::User), Kind::Secondary, 34.0).clicked() {
+                        this.nick.open = true;
+                    }
+                    if button(ui, "Из sfatm", Some(Icon::Download), Kind::Secondary, 34.0).on_hover_text("Забрать скины из гардероба мода sfatm в сборках").clicked() {
+                        this.be.import_sfatm_skins();
+                    }
+                };
+                if ui.available_width() >= 760.0 {
+                    ui.horizontal(|ui| {
+                        tabs(ui, Id::new("skin-tabs"), &labels, &mut self.skin_tab);
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            buttons(self, ui);
+                        });
                     });
-                });
+                } else {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+                        buttons(self, ui);
+                    });
+                    ui.add_space(10.0);
+                    tabs(ui, Id::new("skin-tabs"), &labels, &mut self.skin_tab);
+                }
                 ui.add_space(12.0);
                 let list: Vec<SkinItem> = self.skins.iter().filter(|s| self.skin_tab == 0 || s.favorite).cloned().collect();
                 if list.is_empty() {

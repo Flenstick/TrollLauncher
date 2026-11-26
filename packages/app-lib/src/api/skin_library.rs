@@ -65,6 +65,10 @@ pub struct SkinLibrary {
     /// Account (profile UUID) → id of the library skin last put on it.
     #[serde(default)]
     pub equipped: HashMap<String, String>,
+    /// Ids of skins the user deleted: automatic sources (sfatm wardrobe sync,
+    /// account skin) must not bring them back. Adding by hand clears the mark.
+    #[serde(default)]
+    pub removed: Vec<String>,
 }
 
 /// A downloaded texture that is not saved yet.
@@ -185,6 +189,7 @@ pub async fn add(
     let _guard = LIBRARY_LOCK.lock().await;
     let mut library = read_library(&dir).await;
     let id = skin_id(&texture);
+    library.removed.retain(|r| *r != id);
 
     if let Some(existing) = library.skins.iter().find(|skin| skin.id == id) {
         let mut existing = existing.clone();
@@ -237,12 +242,33 @@ pub async fn update(skin: LibrarySkin) -> crate::Result<()> {
     write_library(&dir, &library).await
 }
 
+/// Like [`add`], but for automatic sources (sfatm wardrobe, account skin):
+/// a skin the user deleted is skipped (`Ok(None)`).
+pub async fn add_auto(
+    texture: Vec<u8>,
+    name: String,
+    variant: Option<LibrarySkinVariant>,
+    source: String,
+) -> crate::Result<Option<LibrarySkin>> {
+    let dir = library_dir()?;
+    {
+        let _guard = LIBRARY_LOCK.lock().await;
+        if read_library(&dir).await.removed.contains(&skin_id(&texture)) {
+            return Ok(None);
+        }
+    }
+    add(texture, name, variant, None, source).await.map(Some)
+}
+
 pub async fn remove(id: &str) -> crate::Result<()> {
     let dir = library_dir()?;
     let _guard = LIBRARY_LOCK.lock().await;
     let mut library = read_library(&dir).await;
     library.skins.retain(|skin| skin.id != id);
     library.equipped.retain(|_, skin| skin != id);
+    if !library.removed.iter().any(|r| r == id) {
+        library.removed.push(id.to_string());
+    }
     write_library(&dir, &library).await?;
     let _ = tokio::fs::remove_file(texture_path(&dir, id)).await;
     Ok(())

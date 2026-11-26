@@ -80,7 +80,8 @@ impl Backend {
             for (d, seen_before) in &fresh {
                 for (png, name, slim) in crate::sfskin::list(std::slice::from_ref(d)) {
                     let v = if slim { theseus::skin_library::LibrarySkinVariant::Slim } else { theseus::skin_library::LibrarySkinVariant::Classic };
-                    if let Ok(s) = theseus::skin_library::add(png, name, Some(v), None, "sfatm".into()).await
+                    // удалённые пользователем скины из гардероба не возвращаем
+                    if let Ok(Some(s)) = theseus::skin_library::add_auto(png, name, Some(v), "sfatm".into()).await
                         && !known.contains(&s.id)
                         && !added.iter().any(|(id, _)| *id == s.id)
                     {
@@ -89,7 +90,7 @@ impl Backend {
                 }
                 if let Some((png, name, slim)) = crate::sfskin::worn(d) {
                     let v = if slim { theseus::skin_library::LibrarySkinVariant::Slim } else { theseus::skin_library::LibrarySkinVariant::Classic };
-                    if let Ok(s) = theseus::skin_library::add(png, name, Some(v), None, "sfatm".into()).await {
+                    if let Ok(Some(s)) = theseus::skin_library::add_auto(png, name, Some(v), "sfatm".into()).await {
                         if !known.contains(&s.id) && !added.iter().any(|(id, _)| *id == s.id) {
                             added.push((s.id.clone(), s.name));
                         }

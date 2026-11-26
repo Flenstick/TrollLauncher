@@ -10,6 +10,7 @@ pub struct Prefs {
 	pub theme: String,
 	/// Свой акцент (индекс в ACCENTS) или `None` — акцент темы
 	pub accent: Option<usize>,
+	pub custom_colors: crate::theme::CustomColors,
 	pub scale: f32,
 	pub animations: bool,
 	/// id набора котиков или "none"
@@ -37,6 +38,20 @@ pub struct Prefs {
 	pub font: String,
 	/// Для sys: файлы обычного, medium, semibold, bold («путь#номер»)
 	pub font_files: Vec<String>,
+	/// Котик спрятан кнопкой на тулбаре PrismTroll
+	pub cat_off: bool,
+	/// PrismTroll: свёрнутые группы (id, "" — «Без группы») и выбранная сборка
+	pub prism_collapsed: Vec<String>,
+	pub prism_sel: Option<String>,
+	/// Prism Launcher: иконки «pixel» (как в Prism) или «theme» (стиль иконок лаунчера)
+	pub prism_icons: String,
+	/// Prism Launcher: размер иконок сборок в сетке, px
+	pub prism_tile: f32,
+	pub prism_news: bool,
+	pub prism_status: bool,
+	pub prism_cat_button: bool,
+	/// Скорость прокрутки колесом (множитель к 40 px за щелчок)
+	pub scroll_speed: f32,
 }
 
 impl Default for Prefs {
@@ -44,6 +59,7 @@ impl Default for Prefs {
 		Self {
 			theme: "trollland".into(),
 			accent: None,
+			custom_colors: Default::default(),
 			scale: 1.0,
 			animations: true,
 			cat: "kitteh".into(),
@@ -59,6 +75,15 @@ impl Default for Prefs {
 			icon_tint: true,
 			font: crate::look::FONT_INTER.into(),
 			font_files: Vec::new(),
+			cat_off: false,
+			prism_collapsed: Vec::new(),
+			prism_sel: None,
+			prism_icons: "pixel".into(),
+			prism_tile: 48.0,
+			prism_news: true,
+			prism_status: true,
+			prism_cat_button: true,
+			scroll_speed: 2.5,
 		}
 	}
 }
@@ -76,8 +101,14 @@ fn file() -> PathBuf {
 pub fn load() -> Prefs {
 	if let Some(p) = std::fs::read(file())
 		.ok()
-		.and_then(|b| serde_json::from_slice(&b).ok())
+		.and_then(|b| serde_json::from_slice::<Prefs>(&b).ok())
 	{
+		let mut p = p;
+		// 25.11.2026: точная копия Prism стала отдельным макетом «Prism Launcher» (id prismlauncher),
+		// а id prism снова у «PrismTroll» (тулбар сверху)
+		if p.preset == "prism" && p.nav == crate::look::Nav::Prism {
+			p.preset = "prismlauncher".into();
+		}
 		return p;
 	}
 	let mut p = Prefs::default();

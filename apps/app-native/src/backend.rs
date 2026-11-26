@@ -27,6 +27,8 @@ pub struct Inst {
     pub played_secs: u64,
     pub installing: bool,
     pub created: DateTime<Utc>,
+    /// id групп сборки (группы как в Prism)
+    pub groups: Vec<String>,
 }
 
 /// Иконка sfatm в списке модов (банкомат из мода); байты отдаются egui при старте.
@@ -155,6 +157,14 @@ pub enum Msg {
     Ready,
     InitError(String),
     Instances(Vec<Inst>),
+    /// Группы сборок: (id, имя)
+    Groups(Vec<(String, String)>),
+    /// Сборки Horizon: сборка, папка, закреплённая версия
+    Horizon(Vec<crate::horizon::HorizonItem>),
+    /// Версии Horizon: установленные и доступные (или ошибка)
+    HorizonVersions(Vec<String>, Result<Vec<String>, String>),
+    /// Что сейчас делает Horizon (скачивание, создание) или None
+    HorizonBusy(Option<String>),
     Running(HashMap<String, DateTime<Utc>>),
     Content(String, Vec<ContentRow>),
     Search(u64, Result<(Vec<Hit>, u64), String>),
@@ -162,7 +172,7 @@ pub enum Msg {
     Jobs(Vec<Job>),
     Skins(Vec<SkinItem>, HashMap<String, String>),
     Log(String, String),
-    Versions(Vec<String>),
+    Versions(Vec<(String, u8)>),
     Toast(String, bool),
     InstallDone(String),
     LoginBusy(bool),
@@ -216,7 +226,7 @@ pub struct Backend {
     tx: Sender<Msg>,
     pub rx: Receiver<Msg>,
     ctx: egui::Context,
-    http: reqwest::Client,
+    pub(crate) http: reqwest::Client,
 }
 
 static ELY_CANCEL: tokio::sync::Notify = tokio::sync::Notify::const_new();
@@ -267,38 +277,54 @@ impl Backend {
 
     pub fn refresh_instances(&self) {
         self.task(|tx| async move {
-            match instance::list().await {
-                Ok(list) => {
-                    let mut out: Vec<Inst> = list
-                        .into_iter()
-                        .map(|m| {
-                            let i = m.instance;
-                            let cs = m.applied_content_set;
-                            Inst {
-                                installing: !matches!(i.install_stage.as_str(), "installed" | "pack_installed"),
-                                id: i.id,
-                                name: i.name,
-                                game_version: cs.game_version,
-                                loader: loader_name(cs.loader),
-                                icon: i.icon_path,
-                                last_played: i.last_played,
-                                played_secs: i.submitted_time_played + i.recent_time_played,
-                                created: i.created,
-                            }
-                        })
-                        .collect();
-                    out.sort_by(|a, b| b.last_played.unwrap_or(b.created).cmp(&a.last_played.unwrap_or(a.created)));
-                    let _ = tx.send(Msg::Instances(out));
-                }
-                Err(e) => Self::toast_err(&tx, "Не удалось загрузить сборки", e),
-            }
+            Self::refresh_instances_tx(&tx).await;
         });
+    }
+
+    /// Читает список сборок из БД и отправляет его в UI.
+    /// Вынесено из `refresh_instances`, чтобы обновлять список строго после
+    /// изменений (иначе чтение успевает произойти раньше записи — гонка).
+    pub(crate) async fn refresh_instances_tx(tx: &Sender<Msg>) {
+        match instance::list().await {
+            Ok(list) => {
+                let mut out: Vec<Inst> = list
+                    .into_iter()
+                    .map(|m| {
+                        let i = m.instance;
+                        let cs = m.applied_content_set;
+                        let groups = m.group_ids;
+                        Inst {
+                            installing: !matches!(i.install_stage.as_str(), "installed" | "pack_installed"),
+                            id: i.id,
+                            name: i.name,
+                            game_version: cs.game_version,
+                            loader: loader_name(cs.loader),
+                            icon: i.icon_path,
+                            last_played: i.last_played,
+                            played_secs: i.submitted_time_played + i.recent_time_played,
+                            created: i.created,
+                            groups,
+                        }
+                    })
+                    .collect();
+                out.sort_by(|a, b| b.last_played.unwrap_or(b.created).cmp(&a.last_played.unwrap_or(a.created)));
+                let _ = tx.send(Msg::Instances(out));
+                if let Ok(g) = instance::list_groups().await {
+                    let _ = tx.send(Msg::Groups(g.into_iter().map(|g| (g.id, g.name)).collect()));
+                }
+            }
+            Err(e) => Self::toast_err(tx, "Не удалось загрузить сборки", e),
+        }
     }
 
     pub fn poll_status(&self) {
         self.task(|tx| async move {
             if let Ok(ps) = process::get_all().await {
-                let map = ps.into_iter().map(|p| (p.instance_id, p.start_time)).collect();
+                let mut map: HashMap<String, DateTime<Utc>> = ps.into_iter().map(|p| (p.instance_id, p.start_time)).collect();
+                // Игры, запущенные до перезапуска лаунчера, — тоже «играет».
+                for d in process::get_detached().await.unwrap_or_default() {
+                    map.entry(d.instance_id).or_insert(d.start_time);
+                }
                 let _ = tx.send(Msg::Running(map));
             }
             if let Ok(jobs) = install::list_jobs(false).await {
@@ -323,7 +349,8 @@ impl Backend {
 
     pub fn kill(&self, id: String) {
         self.task(|tx| async move {
-            if let Err(e) = instance::kill(&id).await {
+            let detached = process::kill_detached(&id).await;
+            if let Err(e) = instance::kill(&id).await.and(detached) {
                 Self::toast_err(&tx, "Не удалось остановить", e);
             }
         });
@@ -337,8 +364,8 @@ impl Backend {
                 }
                 Err(e) => Self::toast_err(&tx, "Не удалось поставить картинку", e),
             }
+            Self::refresh_instances_tx(&tx).await;
         });
-        self.refresh_instances();
     }
 
     pub fn reset_icon(&self, id: String) {
@@ -346,8 +373,8 @@ impl Backend {
             if let Err(e) = instance::edit_icon(&id, None).await {
                 Self::toast_err(&tx, "Не удалось убрать картинку", e);
             }
+            Self::refresh_instances_tx(&tx).await;
         });
-        self.refresh_instances();
     }
 
     pub fn rename(&self, id: String, name: String) {
@@ -356,8 +383,9 @@ impl Backend {
             if let Err(e) = instance::edit(&id, edit).await {
                 Self::toast_err(&tx, "Не удалось переименовать", e);
             }
+            // Обновляем список только после записи в БД, иначе UI покажет старое имя.
+            Self::refresh_instances_tx(&tx).await;
         });
-        self.refresh_instances();
     }
 
     pub fn remove_instance(&self, id: String) {
@@ -368,8 +396,45 @@ impl Backend {
                 }
                 Err(e) => Self::toast_err(&tx, "Не удалось удалить", e),
             }
+            Self::refresh_instances_tx(&tx).await;
         });
-        self.refresh_instances();
+    }
+
+    /// Переложить сборку в группу по имени (пустое — «Без группы»); `keep` — группы, которые не трогать.
+    pub fn set_group(&self, id: String, name: String, keep: Vec<String>) {
+        self.task(|tx| async move {
+            let res = async {
+                let mut ids = keep;
+                let name = name.trim().to_string();
+                if !name.is_empty() {
+                    let groups = instance::list_groups().await?;
+                    let gid = match groups.into_iter().find(|g| g.name == name) {
+                        Some(g) => g.id,
+                        None => instance::create_group(name).await?.id,
+                    };
+                    ids.push(gid);
+                }
+                instance::set_group_memberships(vec![instance::InstanceGroupMembershipUpdate { instance_id: id, group_ids: ids }]).await
+            }
+            .await;
+            if let Err(e) = res {
+                Self::toast_err(&tx, "Не удалось сменить группу", e);
+            }
+            Self::refresh_instances_tx(&tx).await;
+        });
+    }
+
+    /// Копия сборки (идёт заданием установки, видна в загрузках).
+    pub fn duplicate(&self, id: String) {
+        self.task(|tx| async move {
+            match install::duplicate_instance(id).await {
+                Ok(_) => {
+                    let _ = tx.send(Msg::Toast("Копирую сборку…".into(), false));
+                }
+                Err(e) => Self::toast_err(&tx, "Не удалось скопировать", e),
+            }
+            Self::refresh_instances_tx(&tx).await;
+        });
     }
 
     pub fn open_folder(&self, id: String) {
@@ -393,8 +458,8 @@ impl Backend {
                 }
                 Err(e) => Self::toast_err(&tx, "Не удалось создать сборку", e),
             }
+            Self::refresh_instances_tx(&tx).await;
         });
-        self.refresh_instances();
     }
 
     pub fn load_versions(&self) {
@@ -403,8 +468,14 @@ impl Backend {
                 let v = m
                     .versions
                     .into_iter()
-                    .filter(|v| matches!(v.type_, daedalus::minecraft::VersionType::Release))
-                    .map(|v| v.id)
+                    .map(|v| {
+                        let k = match v.type_ {
+                            daedalus::minecraft::VersionType::Release => 0u8,
+                            daedalus::minecraft::VersionType::Snapshot => 1,
+                            _ => 2,
+                        };
+                        (v.id, k)
+                    })
                     .collect();
                 let _ = tx.send(Msg::Versions(v));
             }
@@ -1104,7 +1175,7 @@ impl Backend {
                 }
                 let src = if a.elyby { "elyby" } else { "mojang" };
                 let Ok(f) = theseus::skin_library::fetch_by_nick(&a.name, src).await else { continue };
-                if let Ok(s) = theseus::skin_library::add(f.texture.to_vec(), format!("{} (аккаунт)", a.name), Some(f.variant), None, src.into()).await
+                if let Ok(Some(s)) = theseus::skin_library::add_auto(f.texture.to_vec(), format!("{} (аккаунт)", a.name), Some(f.variant), src.into()).await
                     && theseus::skin_library::set_equipped(a.id.to_string(), s.id).await.is_ok()
                 {
                     changed = true;
@@ -1522,7 +1593,6 @@ impl Backend {
         let http = self.http.clone();
         self.task(move |tx| async move {
             let res = async {
-                let dir = instance::get_full_path(&instance_id).await.map_err(err)?;
                 let folder = match hit.project_type.as_str() {
                     "resourcepack" => "resourcepacks",
                     "shader" => "shaderpacks",
@@ -1532,10 +1602,13 @@ impl Backend {
                 let mut queue = vec![(hit.project_id.trim_start_matches("cf:").to_string(), folder)];
                 let mut done = std::collections::HashSet::new();
                 let mut first = true;
+                let mut selected = Vec::new();
                 while let Some((id, folder)) = queue.pop() {
                     if !done.insert(id.clone()) {
                         continue;
                     }
+					let project_id = id.parse::<u64>().map_err(err)?;
+					theseus::check_curseforge_download(&instance_id, project_id, None).await.map_err(err)?;
                     let mut q = vec![("pageSize", "50".to_string())];
                     if folder != "resourcepacks" && folder != "shaderpacks" {
                         q.push(("gameVersion", game_version.clone()));
@@ -1560,9 +1633,8 @@ impl Backend {
                         }
                         continue;
                     };
-                    let bytes = http.get(url).send().await.map_err(err)?.error_for_status().map_err(err)?.bytes().await.map_err(err)?;
-                    tokio::fs::create_dir_all(dir.join(folder)).await.map_err(err)?;
-                    tokio::fs::write(dir.join(folder).join(&name), &bytes).await.map_err(err)?;
+					theseus::check_curseforge_download(&instance_id, project_id, Some(url)).await.map_err(err)?;
+					selected.push((name, url.to_owned(), folder));
                     for dep in f.get("dependencies").and_then(|d| d.as_array()).into_iter().flatten() {
                         if dep.get("relationType").and_then(|x| x.as_i64()) == Some(3)
                             && let Some(m) = dep.get("modId").and_then(|x| x.as_i64())
@@ -1572,6 +1644,17 @@ impl Backend {
                     }
                     first = false;
                 }
+				for (name, url, folder) in selected {
+					let stage = tempfile::tempdir().map_err(err)?;
+					if Path::new(&name).file_name().and_then(|name| name.to_str()) != Some(name.as_str()) {
+						return Err("Некорректное имя файла CurseForge".into());
+					}
+					let path = stage.path().join(name);
+					let bytes = http.get(url).send().await.map_err(err)?.error_for_status().map_err(err)?.bytes().await.map_err(err)?;
+					tokio::fs::write(&path, bytes).await.map_err(err)?;
+					let project_type = theseus::data::ProjectType::from_name(folder);
+					instance::add_project_from_path(&instance_id, &path, project_type).await.map_err(err)?;
+				}
                 Ok::<_, String>(())
             }
             .await;

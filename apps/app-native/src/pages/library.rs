@@ -35,12 +35,21 @@ impl App {
 		});
 		ui.add_space(10.0);
 
-        let loaders = ["", "Fabric", "Forge", "NeoForge", "Vanilla"];
-        let labels: Vec<String> = ["Все", "Fabric", "Forge", "NeoForge", "Vanilla"]
+        let mut loaders = vec!["", "Fabric", "Forge", "NeoForge", "Vanilla"];
+        let mut names = vec!["Все", "Fabric", "Forge", "NeoForge", "Vanilla"];
+        if !self.horizon.is_empty() {
+            loaders.push("Rust");
+            names.push("Horizon");
+        }
+        let all: Vec<Inst> = self.instances.iter().chain(self.horizon.iter()).cloned().collect();
+        if self.lib_filter >= loaders.len() {
+            self.lib_filter = 0;
+        }
+        let labels: Vec<String> = names
             .iter()
             .enumerate()
             .map(|(k, n)| {
-                let c = self.instances.iter().filter(|i| k == 0 || i.loader == loaders[k]).count();
+                let c = all.iter().filter(|i| k == 0 || i.loader == loaders[k]).count();
                 format!("{n}  {c}")
             })
             .collect();
@@ -50,8 +59,7 @@ impl App {
         ui.add_space(10.0);
 
         let q = self.lib_search.to_lowercase();
-        let mut list: Vec<Inst> = self
-            .instances
+        let mut list: Vec<Inst> = all
             .iter()
             .filter(|i| (self.lib_filter == 0 || i.loader == loaders[self.lib_filter]) && (q.is_empty() || i.name.to_lowercase().contains(&q)))
             .cloned()
@@ -65,7 +73,7 @@ impl App {
         if list.is_empty() {
             ui.add_space(60.0);
             ui.vertical_centered(|ui| {
-                if self.instances.is_empty() {
+                if all.is_empty() {
                     label(ui, "Сборок пока нет", semibold(16.0), TEXT_DIM());
                     label(ui, "Создайте сборку, импортируйте её или установите с Modrinth", regular(13.5), TEXT_FAINT());
                 } else {

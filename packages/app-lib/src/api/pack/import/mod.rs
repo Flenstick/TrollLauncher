@@ -391,6 +391,15 @@ async fn copy_dotminecraft_with_reporter_inner(
     let state = crate::State::get().await?;
     let _lease = state.content_store.lease().await;
     let dotminecraft = tokio::fs::canonicalize(&dotminecraft).await?;
+    let policy = crate::state::instances::trollland_policy::applies_to_id(instance_id, &state).await?;
+    let prohibited = if policy {
+		crate::state::instances::trollland_policy::scan_import(&dotminecraft).await?
+	} else {
+		Vec::new()
+	};
+    let blocked = |path: &str| prohibited.iter().any(|file| {
+		file.relative == path || (file.is_directory && path.strip_prefix(&file.relative).is_some_and(|rest| rest.starts_with('/')))
+	});
     let subfiles = get_all_subfiles(&dotminecraft, false).await?;
     let mut content_paths = std::collections::HashSet::new();
     let mut duplicate_content_paths = std::collections::HashSet::new();
@@ -436,6 +445,9 @@ async fn copy_dotminecraft_with_reporter_inner(
             Vec::new()
         };
         for file in files {
+			if blocked(&content_file_path(&file)) {
+				continue;
+			}
             if file.missing {
                 return Err(crate::state::content_store::input(format!(
                     "Restore or repair {} before duplicating this instance",
@@ -518,7 +530,7 @@ async fn copy_dotminecraft_with_reporter_inner(
             .map(|part| part.as_os_str().to_string_lossy())
             .collect::<Vec<_>>()
             .join("/");
-        if managed_paths.contains(&relative) {
+        if managed_paths.contains(&relative) || blocked(&relative) {
             continue;
         }
         if tokio::fs::symlink_metadata(&source)

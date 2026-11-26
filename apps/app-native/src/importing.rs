@@ -379,6 +379,7 @@ async fn curseforge_files(
 	let entries = manifest["files"]
 		.as_array()
 		.ok_or("В манифесте нет списка files")?;
+	let protected = manifest["name"].as_str().is_some_and(theseus::is_trollland_name);
 	if !entries.is_empty() && key.trim().is_empty() {
 		return Err("Сохраните API-ключ CurseForge в окне импорта, затем выберите архив ещё раз".into());
 	}
@@ -386,6 +387,9 @@ async fn curseforge_files(
 	for entry in entries {
 		let project =
 			entry["projectID"].as_u64().ok_or("Отсутствует projectID")?;
+		if protected && theseus::curseforge_block_reason(project).is_some() {
+			continue;
+		}
 		let id = entry["fileID"].as_u64().ok_or("Отсутствует fileID")?;
 		let response: Value = http
 			.get(format!(

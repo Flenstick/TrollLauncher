@@ -64,6 +64,9 @@ pub const THEMES: &[Theme] = &[
     theme!("prism", "Prism (Fusion)", light: false,
         0x2a2a2a 0x313131 0x383838 0x424242 0x4d4d4d 0x232323 0x1e1e1e, 0xececec 0xb4b4b4 0x828282,
         0x5cb85c 0xf0ad4e 0x5aa0e6 0xd9534f, accent 0x2a82da),
+    theme!("prismtroll", "Prism Launcher", light: false,
+        0x181616 0x100e0e 0x181616 0x2a2727 0x34302f 0x2a2727 0x100e0e, 0xe4dedc 0x928d8c 0x5c5858,
+        0x5cb85c 0xf0ad4e 0x5aa0e6 0xd9534f, accent 0x645f5c),
     theme!("pixel", "Пиксель", light: false,
         0x1b1b1b 0x262626 0x313131 0x3c3c3c 0x4a4a4a 0x101010 0x141414, 0xf0f0f0 0xb8b8b8 0x7a7a7a,
         0x6fbf3a 0xffd83d 0x5ab4ff 0xe0443a, accent 0x5d9e2f),
@@ -188,11 +191,52 @@ pub const ACCENTS: [(&str, u32); 8] = [
     ("Розовый", 0xd6409f),
 ];
 
-/// Включает тему; `accent` — свой акцент поверх темы (индекс в ACCENTS) или `None` — акцент темы.
-pub fn set_theme(theme: usize, accent: Option<usize>) {
-    let p = THEMES[theme.min(THEMES.len() - 1)].p;
-    *PAL.write().unwrap() = p;
-    set_accent(accent.and_then(|i| ACCENTS.get(i)).map(|a| a.1).unwrap_or(p.accent));
+#[derive(Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct CustomColors {
+	pub accent: Option<u32>,
+	pub content: Option<u32>,
+	pub sidebar: Option<u32>,
+	pub cards: Option<u32>,
+	pub controls: Option<u32>,
+	pub input: Option<u32>,
+	pub text: Option<u32>,
+}
+
+impl CustomColors {
+	pub fn palette(self, theme: usize, accent: Option<usize>) -> Palette {
+		let mut p = THEMES[theme].p;
+		p.accent = self.accent.or_else(|| accent.and_then(|i| ACCENTS.get(i)).map(|a| a.1)).unwrap_or(p.accent);
+		if let Some(content) = self.content {
+			p.content = content;
+			let color = hex(content);
+			let light = (299 * u32::from(color.r()) + 587 * u32::from(color.g()) + 114 * u32::from(color.b())) >= 145_000;
+			if light != p.light {
+				let fallback = THEMES[theme_index(if light { "light" } else { "graphite" })].p;
+				p = Palette { content, accent: p.accent, ..fallback };
+			}
+		}
+		p.bg = self.sidebar.unwrap_or(p.bg);
+		p.panel = self.cards.unwrap_or(p.panel);
+		p.raised = self.controls.unwrap_or(p.raised);
+		p.input = self.input.unwrap_or(p.input);
+		if let Some(text) = self.text {
+			p.text = text;
+			p.dim = rgb(hex(text).lerp_to_gamma(hex(p.content), 0.28));
+			p.faint = rgb(hex(text).lerp_to_gamma(hex(p.content), 0.48));
+		}
+		if self.cards.is_some() || self.controls.is_some() || self.text.is_some() {
+			p.hover = rgb(hex(p.raised).lerp_to_gamma(hex(p.text), 0.12));
+			p.border = rgb(hex(p.panel).lerp_to_gamma(hex(p.text), 0.17));
+		}
+		p
+	}
+}
+
+pub fn set_theme(theme: usize, accent: Option<usize>, custom: CustomColors) {
+	let p = custom.palette(theme, accent);
+	*PAL.write().unwrap() = p;
+	set_accent(p.accent);
 }
 pub fn theme_index(id: &str) -> usize {
     THEMES.iter().position(|t| t.id == id).unwrap_or(0)
@@ -203,6 +247,9 @@ pub fn is_light() -> bool {
 
 pub fn hex(v: u32) -> Color32 {
     Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
+}
+pub fn rgb(c: Color32) -> u32 {
+	u32::from_be_bytes([0, c.r(), c.g(), c.b()])
 }
 pub fn accent() -> Color32 {
     hex(ACCENT.load(Ordering::Relaxed))
